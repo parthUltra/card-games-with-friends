@@ -1,0 +1,5 @@
+{
+  "name": "card-games-with-friends",
+  "main": "party/poker.ts",
+  "compatibilityDate": "2024-11-01"
+}
