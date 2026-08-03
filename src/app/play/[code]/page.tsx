@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import PartySocket from "partysocket";
 import { AnimatePresence, motion } from "framer-motion";
 import { PlayingCard } from "@/components/PlayingCard";
 import { CommunityBoard } from "@/components/CommunityBoard";
@@ -17,23 +16,45 @@ export default function PlayPage() {
   const code = (params.code || "").toUpperCase();
   const router = useRouter();
   const [state, setState] = useState<PokerPrivateView | null>(null);
-  const [socket, setSocket] = useState<PartySocket | null>(null);
   const [raiseTo, setRaiseTo] = useState(0);
   const [me, setMe] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [now, setNow] = useState(Date.now());
   const [actionFlash, setActionFlash] = useState<string | null>(null);
   const [heroDealKey, setHeroDealKey] = useState("");
+  const [acting, setActing] = useState(false);
   const lastActionRef = useRef<string>("");
   const raiseBoundsRef = useRef({ min: 0, max: 0 });
+  const polling = useRef(true);
 
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 200);
     return () => clearInterval(t);
   }, []);
 
+  const ingest = (next: PokerPrivateView) => {
+    setState(next);
+
+    if (next.lastAction && next.lastAction !== lastActionRef.current) {
+      lastActionRef.current = next.lastAction;
+      setActionFlash(next.lastAction);
+    }
+
+    const min = next.legal?.minRaiseTo ?? 0;
+    const max = next.legal?.maxRaiseTo ?? 0;
+    if (
+      min !== raiseBoundsRef.current.min ||
+      max !== raiseBoundsRef.current.max
+    ) {
+      raiseBoundsRef.current = { min, max };
+      if (next.legal?.canRaise) setRaiseTo(min);
+    }
+  };
+
   useEffect(() => {
-    let ws: PartySocket | null = null;
+    polling.current = true;
+    let cancelled = false;
+
     (async () => {
       const { authClient } = await import("@/lib/auth-client");
       const { data } = await authClient.getSession();
@@ -41,46 +62,33 @@ export default function PlayPage() {
         router.replace("/login");
         return;
       }
+      if (cancelled) return;
       setMe(data.user.id);
 
-      const tokenRes = await fetch(`/api/lobbies/${code}/token`, { method: "POST" });
-      const tokenData = await tokenRes.json();
-      if (!tokenRes.ok) {
-        setError(tokenData.error || "Could not join table");
-        return;
-      }
-
-      ws = new PartySocket({
-        host: tokenData.host,
-        room: code,
-        query: { token: tokenData.token },
-      });
-      ws.addEventListener("message", (event) => {
-        const msg = JSON.parse(String(event.data));
-        if (msg.type === "game") {
-          const next = msg.state as PokerPrivateView;
-          setState(next);
-
-          if (next.lastAction && next.lastAction !== lastActionRef.current) {
-            lastActionRef.current = next.lastAction;
-            setActionFlash(next.lastAction);
+      while (polling.current && !cancelled) {
+        try {
+          const res = await fetch(`/api/lobbies/${code}/game`);
+          const data = await res.json();
+          if (!res.ok) {
+            setError(data.error || "Could not join table");
+            break;
           }
-
-          const min = next.legal?.minRaiseTo ?? 0;
-          const max = next.legal?.maxRaiseTo ?? 0;
-          if (
-            min !== raiseBoundsRef.current.min ||
-            max !== raiseBoundsRef.current.max
-          ) {
-            raiseBoundsRef.current = { min, max };
-            if (next.legal?.canRaise) setRaiseTo(min);
+          if (data.state) ingest(data.state as PokerPrivateView);
+          else if (data.status === "waiting") {
+            router.replace(`/lobby/${code}`);
+            break;
           }
+        } catch {
+          // retry
         }
-        if (msg.type === "error") setError(msg.message);
-      });
-      setSocket(ws);
+        await new Promise((r) => setTimeout(r, 900));
+      }
     })();
-    return () => ws?.close();
+
+    return () => {
+      cancelled = true;
+      polling.current = false;
+    };
   }, [code, router]);
 
   useEffect(() => {
@@ -110,14 +118,27 @@ export default function PlayPage() {
     }
   }, [holeKey, heroDealKey]);
 
-  function act(action: "fold" | "check" | "call" | "raise") {
-    socket?.send(
-      JSON.stringify({
-        type: "action",
-        action,
-        raiseTo: action === "raise" ? raiseTo : undefined,
-      }),
-    );
+  async function act(action: "fold" | "check" | "call" | "raise") {
+    if (acting) return;
+    setActing(true);
+    try {
+      const res = await fetch(`/api/lobbies/${code}/game`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action,
+          raiseTo: action === "raise" ? raiseTo : undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Action failed");
+        return;
+      }
+      if (data.state) ingest(data.state as PokerPrivateView);
+    } finally {
+      setActing(false);
+    }
   }
 
   if (error) {
@@ -363,7 +384,7 @@ export default function PlayPage() {
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
               <button
                 className="btn btn-danger !rounded-xl"
-                disabled={!state.legal.canFold || !isMyTurn}
+                disabled={!state.legal.canFold || !isMyTurn || acting}
                 onClick={() => act("fold")}
                 type="button"
               >
@@ -372,7 +393,7 @@ export default function PlayPage() {
               {state.legal.canCheck ? (
                 <button
                   className="btn btn-ghost !rounded-xl"
-                  disabled={!isMyTurn}
+                  disabled={!isMyTurn || acting}
                   onClick={() => act("check")}
                   type="button"
                 >
@@ -381,7 +402,7 @@ export default function PlayPage() {
               ) : (
                 <button
                   className="btn btn-ghost !rounded-xl"
-                  disabled={!state.legal.canCall || !isMyTurn}
+                  disabled={!state.legal.canCall || !isMyTurn || acting}
                   onClick={() => act("call")}
                   type="button"
                 >
@@ -408,7 +429,7 @@ export default function PlayPage() {
               value={raiseTo}
               onChange={setRaiseTo}
               onRaise={() => act("raise")}
-              disabled={!isMyTurn}
+              disabled={!isMyTurn || acting}
             />
           </div>
         </div>

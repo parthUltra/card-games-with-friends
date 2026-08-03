@@ -653,4 +653,61 @@ export class PokerEngine {
       legal: this.legalActions(playerId),
     };
   }
+
+  /** Persistable snapshot for Mongo-backed rooms (Vercel / mobile). */
+  serialize() {
+    return {
+      settings: this.settings,
+      players: this.players,
+      status: this.status,
+      handNumber: this.handNumber,
+      dealerSeat: this.dealerSeat,
+      actingSeat: this.actingSeat,
+      board: this.board,
+      deck: this.deck,
+      pot: this.pot,
+      currentBet: this.currentBet,
+      minRaise: this.minRaise,
+      smallBlind: this.smallBlind,
+      bigBlind: this.bigBlind,
+      blindLevel: this.blindLevel,
+      turnEndsAt: this.turnEndsAt,
+      lastAction: this.lastAction,
+      message: this.message,
+      winners: this.winners,
+      lastAggressorSeat: this.lastAggressorSeat,
+      actedThisRound: [...this.actedThisRound],
+    };
+  }
+
+  static deserialize(data: ReturnType<PokerEngine["serialize"]>): PokerEngine {
+    const engine = new PokerEngine({
+      ...data.settings,
+      players: data.players.map((p) => ({
+        id: p.id,
+        name: p.name,
+        avatarId: p.avatarId,
+      })),
+    });
+    engine.players = data.players;
+    engine.status = data.status;
+    engine.handNumber = data.handNumber;
+    engine.dealerSeat = data.dealerSeat;
+    engine.actingSeat = data.actingSeat;
+    engine.board = data.board;
+    engine.deck = data.deck;
+    engine.pot = data.pot;
+    engine.currentBet = data.currentBet;
+    engine.minRaise = data.minRaise;
+    engine.smallBlind = data.smallBlind;
+    engine.bigBlind = data.bigBlind;
+    engine.blindLevel = data.blindLevel;
+    engine.turnEndsAt = data.turnEndsAt;
+    engine.lastAction = data.lastAction;
+    engine.message = data.message;
+    engine.winners = data.winners;
+    engine.lastAggressorSeat = data.lastAggressorSeat;
+    engine.actedThisRound = new Set(data.actedThisRound);
+    return engine;
+  }
 }

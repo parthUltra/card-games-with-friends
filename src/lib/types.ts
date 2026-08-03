@@ -20,6 +20,14 @@ export type GameLobbySettings = {
   maxPlayers: number;
 } & Record<string, unknown>;
 
+export type LobbyChatMessage = {
+  id: string;
+  userId: string;
+  name: string;
+  text: string;
+  at: number;
+};
+
 export type LobbyDoc = {
   _id?: ObjectId;
   code: string;
@@ -28,6 +36,14 @@ export type LobbyDoc = {
   status: LobbyStatus;
   settings: PokerLobbySettings | GameLobbySettings;
   players: LobbyPlayer[];
+  chat?: LobbyChatMessage[];
+  /** Serialized PokerEngine snapshot while a table is active */
+  engine?: Record<string, unknown> | null;
+  startedAt?: Date | null;
+  blindLevelStartedAt?: number | null;
+  /** When set, deal the next hand after this epoch ms */
+  nextHandAt?: number | null;
+  matchPersisted?: boolean;
   createdAt: Date;
   updatedAt: Date;
   inviteExpiresAt?: Date;

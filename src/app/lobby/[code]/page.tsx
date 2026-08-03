@@ -1,8 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import PartySocket from "partysocket";
 import { avatarSrc } from "@/lib/avatars";
 import { PokerLobbySettings } from "@/lib/games/registry";
 
@@ -32,54 +31,38 @@ export default function LobbyPage() {
   const [me, setMe] = useState<string | null>(null);
   const [chatText, setChatText] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [socket, setSocket] = useState<PartySocket | null>(null);
+  const [copied, setCopied] = useState(false);
+  const polling = useRef(true);
 
   const inviteUrl = useMemo(() => {
     if (typeof window === "undefined") return "";
     return `${window.location.origin}/join/${code}`;
   }, [code]);
 
-  const connect = useCallback(async () => {
-    // Ensure membership in Mongo
-    await fetch(`/api/lobbies/${code}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "join" }),
-    });
+  const applyLobby = useCallback(
+    (data: LobbyMsg) => {
+      setLobby(data);
+      if (data.status === "playing") {
+        router.push(`/play/${code}`);
+      }
+    },
+    [code, router],
+  );
 
-    const tokenRes = await fetch(`/api/lobbies/${code}/token`, { method: "POST" });
-    const tokenData = await tokenRes.json();
-    if (!tokenRes.ok) {
-      setError(tokenData.error || "Could not connect");
+  const refresh = useCallback(async () => {
+    const res = await fetch(`/api/lobbies/${code}`);
+    const data = await res.json();
+    if (!res.ok) {
+      setError(data.error || "Could not load lobby");
       return;
     }
-
-    const host = tokenData.host || process.env.NEXT_PUBLIC_PARTYKIT_HOST;
-    const ws = new PartySocket({
-      host,
-      room: code,
-      query: { token: tokenData.token },
-    });
-
-    ws.addEventListener("message", (event) => {
-      const msg = JSON.parse(String(event.data));
-      if (msg.type === "lobby") {
-        setLobby(msg);
-        if (msg.status === "playing") {
-          router.push(`/play/${code}`);
-        }
-      }
-      if (msg.type === "error") setError(msg.message);
-    });
-
-    setSocket(ws);
-    // decode user from token payload is awkward; get session
-    const sessionRes = await fetch("/api/auth/get-session").catch(() => null);
-    // better-auth session endpoint
-  }, [code, router]);
+    applyLobby(data);
+  }, [applyLobby, code]);
 
   useEffect(() => {
+    polling.current = true;
     let cancelled = false;
+
     (async () => {
       const { authClient } = await import("@/lib/auth-client");
       const { data } = await authClient.getSession();
@@ -87,46 +70,107 @@ export default function LobbyPage() {
         router.replace(`/login`);
         return;
       }
-      if (!cancelled) setMe(data.user.id);
-      await connect();
+      if (cancelled) return;
+      setMe(data.user.id);
+
+      const joinRes = await fetch(`/api/lobbies/${code}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "join" }),
+      });
+      const joinData = await joinRes.json();
+      if (!joinRes.ok) {
+        setError(joinData.error || "Could not join lobby");
+        return;
+      }
+      if (!cancelled) applyLobby(joinData);
+
+      while (polling.current && !cancelled) {
+        await new Promise((r) => setTimeout(r, 1200));
+        if (!polling.current || cancelled) break;
+        try {
+          await refresh();
+        } catch {
+          // keep trying
+        }
+      }
     })();
+
     return () => {
       cancelled = true;
-      socket?.close();
+      polling.current = false;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [code]);
+  }, [applyLobby, code, refresh, router]);
 
-  function sendChat(e: React.FormEvent) {
+  async function sendChat(e: React.FormEvent) {
     e.preventDefault();
-    if (!socket || !chatText.trim()) return;
-    socket.send(JSON.stringify({ type: "chat", text: chatText }));
+    if (!chatText.trim()) return;
+    const text = chatText;
     setChatText("");
+    const res = await fetch(`/api/lobbies/${code}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "chat", text }),
+    });
+    const data = await res.json();
+    if (res.ok) applyLobby(data);
   }
 
-  function ready() {
-    socket?.send(JSON.stringify({ type: "ready" }));
+  async function ready() {
+    const res = await fetch(`/api/lobbies/${code}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "ready" }),
+    });
+    const data = await res.json();
+    if (res.ok) applyLobby(data);
   }
 
-  function start() {
-    socket?.send(JSON.stringify({ type: "start" }));
+  async function start() {
+    const res = await fetch(`/api/lobbies/${code}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "start" }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      setError(data.error || "Could not start");
+      return;
+    }
+    applyLobby(data);
     router.push(`/play/${code}`);
   }
 
   async function copyInvite() {
-    await navigator.clipboard.writeText(inviteUrl);
+    try {
+      await navigator.clipboard.writeText(inviteUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      setError("Could not copy link");
+    }
   }
 
   if (error) {
     return (
-      <div className="panel p-6">
+      <div className="panel space-y-3 p-6">
         <p className="text-[var(--danger)]">{error}</p>
+        <button className="btn btn-ghost" type="button" onClick={() => location.reload()}>
+          Retry
+        </button>
       </div>
     );
   }
 
   if (!lobby) {
-    return <p className="text-[var(--cream)]/70">Connecting to lobby…</p>;
+    return (
+      <div className="panel p-6">
+        <p className="text-[var(--cream)]/70">Connecting to lobby…</p>
+        <p className="mt-2 text-xs text-[var(--cream)]/40">
+          Syncing seats over the network…
+        </p>
+      </div>
+    );
   }
 
   const isHost = me === lobby.hostUserId;
@@ -154,7 +198,7 @@ export default function LobbyPage() {
             </p>
           </div>
           <button className="btn btn-ghost !py-2 !text-sm" onClick={copyInvite} type="button">
-            Copy invite link
+            {copied ? "Copied" : "Copy invite link"}
           </button>
         </div>
 
@@ -181,7 +225,6 @@ export default function LobbyPage() {
                       </p>
                       <p className="text-xs text-[var(--cream)]/60">
                         {p.ready ? "Ready" : "Joined"}
-                        {p.connectionId ? "" : " · offline"}
                       </p>
                     </div>
                   </>
