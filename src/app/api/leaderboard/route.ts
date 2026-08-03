@@ -6,7 +6,6 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const gameId = url.searchParams.get("gameId");
 
-  // Prefer per-game leaderboard when a game is specified
   if (gameId) {
     const board = await getCollection<LeaderboardDoc>("leaderboard");
     const top = await board
@@ -28,10 +27,13 @@ export async function GET(req: Request) {
     });
   }
 
-  // Global: aggregate across better-auth user stats
   const users = await getCollection("user");
   const top = await users
-    .find({ onboardingComplete: true })
+    .find({
+      onboardingComplete: true,
+      isAnonymous: { $ne: true },
+      email: { $not: /@(guest\.local|localhost\.dev)$/i },
+    })
     .project({
       name: 1,
       avatarId: 1,

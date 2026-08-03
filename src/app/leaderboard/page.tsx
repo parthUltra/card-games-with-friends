@@ -42,7 +42,11 @@ export default async function LeaderboardPage({ searchParams }: Props) {
   } else {
     const users = await getCollection("user");
     const rows = await users
-      .find({ onboardingComplete: true })
+      .find({
+        onboardingComplete: true,
+        isAnonymous: { $ne: true },
+        email: { $not: /@(guest\.local|localhost\.dev)$/i },
+      })
       .project({
         name: 1,
         avatarId: 1,

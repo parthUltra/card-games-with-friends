@@ -44,11 +44,6 @@ void client.connect().catch((err) => {
   console.error("MongoDB connection error", err);
 });
 
-/** Local multi-window testing without email */
-export const isDevAuthEnabled =
-  process.env.ALLOW_DEV_AUTH === "true" ||
-  process.env.NODE_ENV === "development";
-
 export const auth = betterAuth({
   database: mongodbAdapter(db, {
     client,
@@ -97,14 +92,11 @@ export const auth = betterAuth({
         await sendMagicLinkEmail(email, url);
       },
     }),
-    ...(isDevAuthEnabled
-      ? [
-          anonymous({
-            emailDomainName: "localhost.dev",
-            generateName: () => `Guest`,
-          }),
-        ]
-      : []),
+    // Guests can play anytime; games/stats are not persisted for them (see src/lib/guest.ts).
+    anonymous({
+      emailDomainName: "guest.local",
+      generateName: () => `Guest`,
+    }),
   ],
 });
 
@@ -115,6 +107,7 @@ export type SessionUser = {
   image?: string | null;
   avatarId?: string | null;
   onboardingComplete?: boolean | null;
+  isAnonymous?: boolean | null;
   statsWins?: number;
   statsTop3?: number;
   statsPlayed?: number;

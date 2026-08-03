@@ -2,7 +2,7 @@
 
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
-import { authClient, isDevAuthClient } from "@/lib/auth-client";
+import { authClient } from "@/lib/auth-client";
 import { AVATARS } from "@/lib/avatars";
 
 const QUICK_GUESTS = ["Alice", "Bob", "Carol", "Dave", "Eve", "Frank"];
@@ -24,11 +24,7 @@ export default function LoginPage() {
     setLoading(true);
     setError(null);
     try {
-      const { error: anonErr } = await (
-        authClient.signIn as {
-          anonymous: () => Promise<{ error: { message?: string } | null }>;
-        }
-      ).anonymous();
+      const { error: anonErr } = await authClient.signIn.anonymous();
       if (anonErr) {
         setError(anonErr.message || "Guest sign-in failed");
         return;
@@ -81,65 +77,59 @@ export default function LoginPage() {
 
   return (
     <div className="mx-auto max-w-md pt-10">
-      {isDevAuthClient && (
-        <div className="panel mb-4 space-y-4 border-[var(--gold)]/50 p-6 md:p-8">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--gold)]">
-              Local testing
-            </p>
-            <h1 className="font-display mt-1 text-3xl font-bold">
-              Play as guest
-            </h1>
-            <p className="mt-2 text-sm text-[var(--cream)]/70">
-              No email needed. Open multiple windows and pick different names to
-              test multiplayer.
-            </p>
-          </div>
-
-          <form onSubmit={onGuestSubmit} className="space-y-3">
-            <div>
-              <label className="label" htmlFor="guestName">
-                Display name
-              </label>
-              <input
-                id="guestName"
-                className="input"
-                value={guestName}
-                onChange={(e) => setGuestName(e.target.value)}
-                placeholder="Alice"
-                maxLength={24}
-                autoFocus
-              />
-            </div>
-            <button className="btn btn-gold w-full" disabled={loading} type="submit">
-              {loading ? "Entering…" : "Enter as guest"}
-            </button>
-          </form>
-
-          <div className="flex flex-wrap gap-2">
-            {QUICK_GUESTS.map((name) => (
-              <button
-                key={name}
-                type="button"
-                className="btn btn-ghost !py-2 !text-sm"
-                disabled={loading}
-                onClick={() => enterAsGuest(name)}
-              >
-                {name}
-              </button>
-            ))}
-          </div>
-          {error && <p className="text-sm text-[var(--danger)]">{error}</p>}
+      <div className="panel mb-4 space-y-4 p-6 md:p-8">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--gold)]">
+            Jump in
+          </p>
+          <h1 className="font-display mt-1 text-3xl font-bold">Play as guest</h1>
+          <p className="mt-2 text-sm text-[var(--cream)]/70">
+            No email needed. Guest games and stats are not saved — sign in with
+            email to keep your history and leaderboard.
+          </p>
         </div>
-      )}
+
+        <form onSubmit={onGuestSubmit} className="space-y-3">
+          <div>
+            <label className="label" htmlFor="guestName">
+              Display name
+            </label>
+            <input
+              id="guestName"
+              className="input"
+              value={guestName}
+              onChange={(e) => setGuestName(e.target.value)}
+              placeholder="AceHunter"
+              maxLength={24}
+              autoFocus
+            />
+          </div>
+          <button className="btn btn-gold w-full" disabled={loading} type="submit">
+            {loading ? "Entering…" : "Continue as guest"}
+          </button>
+        </form>
+
+        <div className="flex flex-wrap gap-2">
+          {QUICK_GUESTS.map((name) => (
+            <button
+              key={name}
+              type="button"
+              className="btn btn-ghost !py-2 !text-sm"
+              disabled={loading}
+              onClick={() => enterAsGuest(name)}
+            >
+              {name}
+            </button>
+          ))}
+        </div>
+        {error && <p className="text-sm text-[var(--danger)]">{error}</p>}
+      </div>
 
       <div className="panel p-6 md:p-8">
-        <h2 className="font-display text-2xl font-bold">
-          {isDevAuthClient ? "Or sign in with email" : "Sign in"}
-        </h2>
+        <h2 className="font-display text-2xl font-bold">Or sign in with email</h2>
         <p className="mt-2 text-[var(--cream)]/70">
-          Enter your email. We&apos;ll send a link — click it to create or access
-          your account.
+          Magic link login. Finishing a tournament as a signed-in player updates
+          your profile, history, and rankings.
         </p>
 
         {sent ? (
@@ -167,7 +157,7 @@ export default function LoginPage() {
                 placeholder="you@example.com"
               />
             </div>
-            {!isDevAuthClient && error && (
+            {error && (
               <p className="text-sm text-[var(--danger)]">{error}</p>
             )}
             <button className="btn btn-ghost w-full" disabled={loading} type="submit">

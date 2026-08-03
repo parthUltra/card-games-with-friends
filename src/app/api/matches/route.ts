@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getCollection } from "@/lib/db";
+import { getGuestUserIdSet } from "@/lib/guest";
 import {
   GameEventDoc,
   GameId,
@@ -37,6 +38,19 @@ export async function POST(req: Request) {
 
   const body = schema.parse(await req.json());
   const gameId = body.gameId as GameId;
+  const guestIds = await getGuestUserIdSet(body.players.map((p) => p.userId));
+  const registeredPlayers = body.players.filter((p) => !guestIds.has(p.userId));
+
+  // Guest-only tables: play is fine, nothing is written for history/leaderboards.
+  if (registeredPlayers.length === 0) {
+    const lobbies = await getCollection("lobbies");
+    await lobbies.updateOne(
+      { code: body.lobbyCode.toUpperCase() },
+      { $set: { status: "finished", updatedAt: new Date() } },
+    );
+    return NextResponse.json({ ok: true, skipped: "guest_only" });
+  }
+
   const lobbies = await getCollection("lobbies");
   const lobby = await lobbies.findOne({ code: body.lobbyCode.toUpperCase() });
 
@@ -47,12 +61,13 @@ export async function POST(req: Request) {
     `${gameId} match`;
 
   const matches = await getCollection<MatchDoc>("matches");
+  // Persist only registered players so guests never appear in history/leaderboards.
   const insert = await matches.insertOne({
     lobbyId: lobby?._id ? String(lobby._id) : body.lobbyCode,
     lobbyCode: body.lobbyCode.toUpperCase(),
     gameId,
     lobbyName,
-    players: body.players,
+    players: registeredPlayers,
     settings: body.settings as MatchDoc["settings"],
     startedAt,
     endedAt,
@@ -68,7 +83,7 @@ export async function POST(req: Request) {
   const leaderboard = await getCollection<LeaderboardDoc>("leaderboard");
   const events = await getCollection<GameEventDoc>("game_events");
 
-  for (const p of body.players) {
+  for (const p of registeredPlayers) {
     const filter = ObjectId.isValid(p.userId)
       ? { _id: new ObjectId(p.userId) }
       : { id: p.userId };
@@ -113,7 +128,11 @@ export async function POST(req: Request) {
     });
   }
 
-  return NextResponse.json({ ok: true, matchId: String(insert.insertedId) });
+  return NextResponse.json({
+    ok: true,
+    matchId: String(insert.insertedId),
+    guestPlayersSkipped: guestIds.size,
+  });
 }
 
 export async function GET(req: Request) {
@@ -123,7 +142,13 @@ export async function GET(req: Request) {
   const matches = await getCollection<MatchDoc>("matches");
 
   const filter: Record<string, unknown> = {};
-  if (userId) filter["players.userId"] = userId;
+  if (userId) {
+    const guests = await getGuestUserIdSet([userId]);
+    if (guests.has(userId)) {
+      return NextResponse.json({ matches: [] });
+    }
+    filter["players.userId"] = userId;
+  }
   if (gameId) filter.gameId = gameId;
 
   const list = await matches

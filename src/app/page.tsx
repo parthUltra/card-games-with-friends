@@ -27,9 +27,14 @@ export default async function HomePage() {
               Enter the lounge
             </Link>
           ) : (
-            <Link href="/login" className="btn btn-gold">
-              Sign in to play
-            </Link>
+            <>
+              <Link href="/login" className="btn btn-gold">
+                Play as guest
+              </Link>
+              <Link href="/login" className="btn btn-ghost">
+                Sign in with email
+              </Link>
+            </>
           )}
           <Link href="/leaderboard" className="btn btn-ghost">
             Leaderboard
