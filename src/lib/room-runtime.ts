@@ -36,6 +36,30 @@ export async function casLobby(lobby: LobbyDoc, patch: Partial<LobbyDoc>) {
   return res.matchedCount === 1;
 }
 
+export type RevProbe = Pick<LobbyDoc, "rev" | "status" | "players" | "nextHandAt" | "blindLevelStartedAt" | "settings"> & {
+  engine?: {
+    status?: string;
+    actingSeat?: number | null;
+    turnEndsAt?: number | null;
+    players?: { seat: number; sittingOut?: boolean }[];
+  } | null;
+};
+
+/**
+ * True when runLobbyGame would change something just because time passed.
+ * Must stay in step with runLobbyGame: the cheap-poll 204 path relies on it (see room-runtime.test.ts).
+ */
+export function tickDue(l: RevProbe, now: number) {
+  const e = l.engine;
+  if (l.status !== "playing" || !e || e.status === "finished") return false;
+  const intervalMs = ((l.settings as PokerLobbySettings | undefined)?.blindIntervalMin ?? 0) * 60_000;
+  if (l.blindLevelStartedAt == null || now - l.blindLevelStartedAt >= intervalMs) return true;
+  if (e.status === "waiting" || e.status === "showdown") return l.nextHandAt == null || now >= l.nextHandAt;
+  if (e.actingSeat == null) return false;
+  const acting = e.players?.find((p) => p.seat === e.actingSeat);
+  return Boolean(acting?.sittingOut) || (e.turnEndsAt != null && now >= e.turnEndsAt);
+}
+
 type GameMutation = (engine: PokerEngine, now: number) => void;
 
 /**

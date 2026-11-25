@@ -28,7 +28,7 @@ vi.mock("@/lib/db", () => ({
 }));
 vi.mock("@/lib/guest", () => ({ getGuestUserIdSet: async () => new Set<string>() }));
 
-const { runLobbyGame } = await import("./room-runtime");
+const { runLobbyGame, tickDue } = await import("./room-runtime");
 const { PokerEngine } = await import("./poker/engine");
 const { DEFAULT_POKER_SETTINGS } = await import("./games/registry");
 
@@ -113,5 +113,28 @@ describe("runLobbyGame", () => {
     await runLobbyGame(lobby, winnerTakesAll); // stale racer
     expect(store.get("ABC")!.status).toBe("finished");
     expect(persisted.filter((n) => n === "matches")).toHaveLength(1);
+  });
+
+  // The cheap-poll 204 path skips runLobbyGame whenever tickDue is false, so the two must agree.
+  it("tickDue agrees with whether a tick would write", async () => {
+    const now = Date.now();
+    const cases: [string, (l: LobbyDoc) => void][] = [
+      ["mid-turn, nothing due", () => {}],
+      ["turn expired", (l) => { (l.engine as { turnEndsAt: number }).turnEndsAt = now - 1; }],
+      ["blinds due", (l) => { l.blindLevelStartedAt = now - 60 * 60_000; }],
+      ["acting player sitting out", (l) => {
+        const e = l.engine as unknown as { players: { seat: number; sittingOut: boolean }[]; actingSeat: number };
+        e.players.find((p) => p.seat === e.actingSeat)!.sittingOut = true;
+      }],
+    ];
+    for (const [name, mutate] of cases) {
+      store.clear();
+      const lobby = seed();
+      mutate(lobby);
+      store.set("ABC", structuredClone(lobby));
+      const due = tickDue(lobby, Date.now());
+      await runLobbyGame(lobby);
+      expect({ name, wrote: store.get("ABC")!.rev !== 1 }).toEqual({ name, wrote: due });
+    }
   });
 });

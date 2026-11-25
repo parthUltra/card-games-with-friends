@@ -1,7 +1,9 @@
 "use client";
 
-import { motion, AnimatePresence } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import { PlayingCard } from "@/components/PlayingCard";
+import { CountUp } from "@/components/table/CountUp";
+import { TurnRing } from "@/components/table/TurnRing";
 import { avatarSrc } from "@/lib/avatars";
 import type { PlayerPublic } from "@/lib/poker/engine";
 import { handRankLabel, type HandRankName } from "@/lib/poker/hand";
@@ -9,87 +11,76 @@ import { handRankLabel, type HandRankName } from "@/lib/poker/hand";
 type Props = {
   player: PlayerPublic;
   active: boolean;
+  /** Someone else is acting: dim to 70% so the active seat pops */
+  idle: boolean;
   isDealer: boolean;
   reveal: boolean;
+  winner: boolean;
+  badge: string | null;
+  isHero?: boolean;
+  /** Desktop: larger avatar ring */
+  big?: boolean;
+  clock: { endsAt: number | null; totalMs: number; skew: number };
 };
 
-export function SeatHud({ player, active, isDealer, reveal }: Props) {
+/** Compact seat pod: avatar with turn ring, name, stack, mini cards and a status badge. */
+export function SeatHud({ player, active, idle, isDealer, reveal, winner, badge, isHero, big, clock }: Props) {
+  const out = player.busted;
+  const status = out ? "Out" : player.folded ? "Fold" : player.allIn ? "All-in" : player.sittingOut ? "Away" : badge;
+  const showFaces = reveal && player.hole?.length === 2 && !isHero;
+
   return (
     <motion.div
-      layout
+      className={`pod ${active ? "pod-active" : ""} ${winner ? "pod-win" : ""} ${isHero ? "pod-hero" : ""}`}
       animate={{
-        scale: active ? 1.04 : 1,
-        opacity: player.busted ? 0.4 : player.folded ? 0.55 : 1,
+        opacity: out ? 0.35 : player.folded ? 0.5 : idle ? 0.7 : 1,
+        scale: winner ? [1, 1.04, 1] : 1,
       }}
-      className={`seat-hud relative w-[104px] rounded-2xl px-2.5 py-2 text-center md:w-[118px] ${
-        active ? "seat-hud-active" : "seat-hud-idle"
-      }`}
+      transition={{ type: "spring", stiffness: 300, damping: 25, scale: { duration: 0.35, ease: "easeOut" } }}
+      aria-label={`${isHero ? "You" : player.name}, ${player.stack.toLocaleString()} chips${status ? `, ${status}` : ""}${active ? ", acting" : ""}`}
     >
-      {isDealer && (
-        <span className="absolute -right-1 -top-1 flex h-6 w-6 items-center justify-center rounded-full bg-[var(--cream)] font-display text-[10px] font-bold text-[var(--ink)] shadow">
-          D
-        </span>
+      {!isHero && !showFaces && player.holeCount > 0 && !out && (
+        <div className="pod-cards" aria-hidden>
+          {Array.from({ length: player.holeCount }).map((_, i) => (
+            <PlayingCard key={i} faceDown size="sm" deal delay={i * 0.06} dimmed={player.folded} />
+          ))}
+        </div>
       )}
 
-      <div className="relative mx-auto h-11 w-11">
+      <TurnRing endsAt={active ? clock.endsAt : null} totalMs={clock.totalMs} skew={clock.skew} size={(big ? 56 : 40) + (isHero ? 4 : 0)}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={avatarSrc(player.avatarId)}
-          alt=""
-          className="h-11 w-11 rounded-full ring-2 ring-black/40"
-        />
-        {active && (
-          <span className="absolute inset-0 animate-ping rounded-full bg-[var(--gold)]/30" />
-        )}
+        <img src={avatarSrc(player.avatarId)} alt="" className="pod-avatar" />
+      </TurnRing>
+
+      <div className="pod-info">
+        <span className="pod-name">{isHero ? "You" : player.name}</span>
+        <CountUp value={player.stack} className="pod-stack" />
       </div>
 
-      <p className="mt-1.5 truncate text-xs font-semibold tracking-wide">
-        {player.name}
-      </p>
-      <p className="font-display text-sm tabular-nums text-[var(--gold-soft)]">
-        {player.stack.toLocaleString()}
-      </p>
+      {showFaces && (
+        <div className="pod-cards-up">
+          {player.hole!.map((c, i) => (
+            <PlayingCard key={`${c.rank}${c.suit}`} card={c} size="sm" flipIn delay={i * 0.08} highlight={winner} />
+          ))}
+        </div>
+      )}
+
+      {isDealer && <span className="dealer-btn" aria-label="Dealer">D</span>}
 
       <AnimatePresence>
-        {player.bet > 0 && !player.busted && (
-          <motion.div
-            initial={{ opacity: 0, y: 6 }}
+        {(status || (reveal && player.handName)) && (
+          <motion.span
+            key={reveal && player.handName ? player.handName : status}
+            className={`pod-badge ${reveal && player.handName ? "pod-badge-hand" : ""} ${status === "All-in" ? "pod-badge-allin" : ""}`}
+            initial={{ opacity: 0, y: 4 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0 }}
-            className="mt-1 inline-flex rounded-full bg-black/50 px-2 py-0.5 text-[10px] font-semibold text-[var(--cream)]"
+            transition={{ duration: 0.15 }}
           >
-            {player.bet.toLocaleString()}
-          </motion.div>
+            {reveal && player.handName ? handRankLabel(player.handName as HandRankName) : status}
+          </motion.span>
         )}
       </AnimatePresence>
-
-      <div className="mt-1.5 flex min-h-[54px] justify-center gap-1">
-        {reveal && player.hole && player.hole.length === 2
-          ? player.hole.map((c, i) => (
-              <PlayingCard key={i} card={c} size="sm" flipIn delay={i * 0.08} />
-            ))
-          : Array.from({ length: player.holeCount }).map((_, i) => (
-              <PlayingCard
-                key={i}
-                faceDown
-                size="sm"
-                deal
-                delay={i * 0.06}
-                dimmed={player.folded}
-              />
-            ))}
-      </div>
-
-      {reveal && player.handName && (
-        <p className="mt-1 truncate text-[10px] font-semibold text-[var(--gold-soft)]">
-          {handRankLabel(player.handName as HandRankName)}
-        </p>
-      )}
-      {(player.folded || player.allIn || player.busted || player.sittingOut) && (
-        <p className="mt-1 text-[10px] font-bold uppercase tracking-wider text-[var(--cream)]/60">
-          {player.busted ? "Out" : player.folded ? "Fold" : player.allIn ? "All-in" : "Away"}
-        </p>
-      )}
     </motion.div>
   );
 }

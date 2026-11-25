@@ -7,22 +7,31 @@ import { Card, cardBackImage, cardImage } from "@/lib/cards";
 type Props = {
   card?: Card | null;
   faceDown?: boolean;
+  /** Sizes are CSS-driven (table.css) so they scale with the viewport. */
   size?: "sm" | "md" | "lg" | "xl";
   delay?: number;
-  /** Deal from above then settle */
+  /** Slide in from the table center then settle */
   deal?: boolean;
-  /** 3D flip from back to face */
+  /** Flip from back to face */
   flipIn?: boolean;
   dimmed?: boolean;
+  /** Brass outline, e.g. cards of the winning hand */
+  highlight?: boolean;
   className?: string;
 };
 
-const SIZES = {
-  sm: { w: 40, h: 54 },
-  md: { w: 58, h: 78 },
-  lg: { w: 88, h: 118 },
-  xl: { w: 110, h: 148 },
-};
+const RANK_NAME: Record<string, string> = { A: "Ace", K: "King", Q: "Queen", J: "Jack" };
+export const cardLabel = (c: Card) => `${RANK_NAME[c.rank] ?? c.rank} of ${c.suit}`;
+
+const EASE = [0.2, 0.8, 0.2, 1] as const;
+
+function Face({ src, alt, back }: { src: string; alt: string; back?: boolean }) {
+  return (
+    <span className={`pc-face ${back ? "pc-back" : ""}`}>
+      <Image src={src} alt={alt} fill sizes="120px" unoptimized draggable={false} />
+    </span>
+  );
+}
 
 export function PlayingCard({
   card,
@@ -32,59 +41,40 @@ export function PlayingCard({
   deal = false,
   flipIn = false,
   dimmed = false,
+  highlight = false,
   className = "",
 }: Props) {
-  const dim = SIZES[size];
   const showFace = !faceDown && !!card;
-  const src = showFace ? cardImage(card) : cardBackImage();
+  const alt = showFace ? cardLabel(card) : "Face-down card";
+  const flip = flipIn && showFace;
 
   return (
     <motion.div
-      layout
+      role="img"
+      aria-label={alt}
       initial={
-        deal || flipIn
-          ? {
-              y: deal ? -80 : 0,
-              opacity: 0,
-              scale: deal ? 0.85 : 1,
-              rotateY: flipIn ? 90 : 0,
-              rotateZ: deal ? -8 : 0,
-            }
-          : false
+        flip
+          ? { rotateY: 180, scale: 0.9, opacity: 1 }
+          : deal
+            ? { y: -36, scale: 0.8, opacity: 0 }
+            : false
       }
-      animate={{
-        y: 0,
-        opacity: dimmed ? 0.35 : 1,
-        scale: 1,
-        rotateY: 0,
-        rotateZ: 0,
-      }}
-      transition={{
-        type: "spring",
-        stiffness: 260,
-        damping: 20,
-        delay,
-        opacity: { duration: 0.25, delay },
-      }}
-      className={`card-face relative shrink-0 ${className}`}
-      style={{
-        width: dim.w,
-        height: dim.h,
-        transformStyle: "preserve-3d",
-        perspective: 800,
-      }}
+      animate={{ rotateY: 0, scale: 1, y: 0, opacity: dimmed ? 0.4 : 1 }}
+      transition={
+        flip
+          ? { duration: 0.28, ease: EASE, delay }
+          : { type: "spring", stiffness: 500, damping: 35, delay, opacity: { duration: 0.15, delay } }
+      }
+      className={`pc pc-${size} ${highlight ? "pc-hl" : ""} ${className}`}
     >
-      <div className="card-shell absolute inset-0 overflow-hidden rounded-[0.45rem] bg-[#f7f1e3] shadow-[0_8px_20px_rgba(0,0,0,0.45)] ring-1 ring-black/30">
-        <Image
-          src={src}
-          alt={showFace ? `${card!.rank} of ${card!.suit}` : "Card back"}
-          width={dim.w * 2}
-          height={dim.h * 2}
-          className="h-full w-full object-cover"
-          unoptimized
-          priority={size === "lg" || size === "xl"}
-        />
-      </div>
+      {flip ? (
+        <>
+          <Face src={cardImage(card)} alt="" />
+          <Face src={cardBackImage()} alt="" back />
+        </>
+      ) : (
+        <Face src={showFace ? cardImage(card) : cardBackImage()} alt="" />
+      )}
     </motion.div>
   );
 }

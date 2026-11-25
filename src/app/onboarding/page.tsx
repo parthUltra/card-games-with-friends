@@ -48,15 +48,24 @@ export default function OnboardingPage() {
     }
   }
 
+  const current = AVATARS.find((a) => a.id === avatarId) ?? AVATARS[0];
+
   return (
-    <div className="mx-auto max-w-2xl pt-6">
-      <div className="panel p-6 md:p-8">
-        <h1 className="font-display text-3xl font-bold">Create your player</h1>
-        <p className="mt-2 text-[var(--cream)]/70">
-          Pick a display name and an avatar. You can change these later.
-        </p>
-        <form onSubmit={onSubmit} className="mt-6 space-y-6">
-          <div>
+    <div className="page-in mx-auto max-w-2xl md:pt-4">
+      <header className="mb-6">
+        <p className="eyebrow">Your player</p>
+        <h1 className="font-display mt-2 text-[28px] font-bold leading-tight md:text-[40px]">Who&apos;s sitting down?</h1>
+        <p className="mt-2 text-[var(--muted)]">Pick a name and an avatar. You can change these later.</p>
+      </header>
+      <form onSubmit={onSubmit} className="panel space-y-6 p-5 md:p-7">
+        <div className="flex items-center gap-4">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={current.src}
+            alt=""
+            className="h-16 w-16 shrink-0 rounded-full ring-2 ring-[var(--brass)] ring-offset-2 ring-offset-[var(--surface)]"
+          />
+          <div className="min-w-0 flex-1">
             <label className="label" htmlFor="name">
               Display name
             </label>
@@ -66,37 +75,48 @@ export default function OnboardingPage() {
               required
               minLength={2}
               maxLength={24}
+              autoComplete="nickname"
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="AceHunter"
             />
           </div>
-          <div>
-            <p className="label">Avatar</p>
-            <div className="grid grid-cols-4 gap-3 sm:grid-cols-6 md:grid-cols-8">
-              {AVATARS.map((a) => (
+        </div>
+        <fieldset>
+          <legend className="label">Avatar</legend>
+          <div className="grid grid-cols-6 gap-2 sm:grid-cols-8">
+            {AVATARS.map((a) => {
+              const on = avatarId === a.id;
+              return (
                 <button
                   key={a.id}
                   type="button"
                   onClick={() => setAvatarId(a.id)}
-                  className={`rounded-xl border p-1 transition ${
-                    avatarId === a.id
-                      ? "border-[var(--gold)] ring-2 ring-[var(--gold)]"
-                      : "border-[var(--line)] opacity-80 hover:opacity-100"
+                  aria-pressed={on}
+                  aria-label={a.label}
+                  className={`aspect-square rounded-full p-0.5 transition-[transform,box-shadow,opacity] duration-150 active:scale-95 ${
+                    on
+                      ? "scale-105 shadow-[0_0_0_2px_var(--brass)]"
+                      : "opacity-70 hover:opacity-100"
                   }`}
                 >
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={a.src} alt={a.label} className="h-full w-full rounded-lg" />
+                  <img src={a.src} alt="" className="h-full w-full rounded-full" />
                 </button>
-              ))}
-            </div>
+              );
+            })}
           </div>
-          {error && <p className="text-sm text-[var(--danger)]">{error}</p>}
-          <button className="btn btn-gold" disabled={loading} type="submit">
-            {loading ? "Saving…" : "Enter the lobby hall"}
-          </button>
-        </form>
-      </div>
+        </fieldset>
+        {error && (
+          <p role="alert" className="text-sm text-[#ff9b9e]">
+            {error}
+          </p>
+        )}
+        <button className="btn btn-gold btn-lg w-full sm:w-auto" disabled={loading} aria-busy={loading} type="submit">
+          {loading && <span className="spinner" aria-hidden />}
+          {loading ? "Saving…" : "Take a seat"}
+        </button>
+      </form>
     </div>
   );
 }

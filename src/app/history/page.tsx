@@ -2,8 +2,11 @@ import Link from "next/link";
 import { getCollection } from "@/lib/db";
 import { getGame } from "@/lib/games/registry";
 import type { MatchDoc } from "@/lib/types";
+import { Avatar } from "@/components/ui/Avatar";
 
 type Props = { searchParams: Promise<{ game?: string }> };
+
+const fmt = new Intl.DateTimeFormat("en", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 
 export default async function HistoryPage({ searchParams }: Props) {
   const { game } = await searchParams;
@@ -18,76 +21,76 @@ export default async function HistoryPage({ searchParams }: Props) {
     .toArray();
 
   return (
-    <div>
+    <div className="page-in">
       <header className="max-w-2xl">
-        <h1 className="font-display text-4xl font-bold md:text-5xl">Past games</h1>
-        <p className="mt-3 text-[var(--cream)]/70">
-          Recent finished tables across the lounge. Your personal history lives on
-          your profile.
+        <p className="eyebrow">History</p>
+        <h1 className="font-display mt-2 text-[28px] font-bold leading-tight md:text-[40px]">Past games</h1>
+        <p className="mt-2 text-[var(--muted)]">
+          Recent finished tables across the lounge. Your own results live on{" "}
+          <Link href="/profile" className="link">
+            your profile
+          </Link>
+          .
         </p>
       </header>
 
-      <nav className="mt-6 flex flex-wrap gap-2">
-        <Link
-          href="/history"
-          className={`rounded-lg px-3 py-2 text-sm font-semibold ${
-            !gameId
-              ? "bg-[var(--gold)] text-[var(--ink)]"
-              : "border border-[var(--line)] text-[var(--cream)]/75"
-          }`}
-        >
+      <nav className="mt-6 flex flex-wrap gap-2" aria-label="Filter by game">
+        <Link href="/history" className="chip" aria-current={!gameId ? "page" : undefined}>
           All
         </Link>
-        <Link
-          href="/history?game=poker"
-          className={`rounded-lg px-3 py-2 text-sm font-semibold ${
-            gameId === "poker"
-              ? "bg-[var(--gold)] text-[var(--ink)]"
-              : "border border-[var(--line)] text-[var(--cream)]/75"
-          }`}
-        >
+        <Link href="/history?game=poker" className="chip" aria-current={gameId === "poker" ? "page" : undefined}>
           Hold&apos;em
         </Link>
       </nav>
 
-      <ul className="mt-8 space-y-3">
-        {list.length === 0 && (
-          <li className="rounded-2xl border border-[var(--line)] bg-black/20 px-5 py-10 text-[var(--cream)]/50">
-            No finished games yet. Host a poker night and close out a tournament.
-          </li>
-        )}
-        {list.map((m) => {
-          const winner = m.players.find((p) => p.place === 1);
-          const gameName = getGame(m.gameId)?.name ?? m.gameId;
-          const title =
-            m.lobbyName ||
-            (m.settings as { lobbyName?: string })?.lobbyName ||
-            gameName;
-          return (
-            <li
-              key={String(m._id)}
-              className="flex flex-col gap-2 rounded-2xl border border-[var(--line)] bg-black/20 px-5 py-4 sm:flex-row sm:items-center sm:justify-between"
-            >
-              <div>
-                <p className="font-display text-lg font-semibold">{title}</p>
-                <p className="text-sm text-[var(--cream)]/55">
-                  {gameName} · {m.players.length} players ·{" "}
-                  {new Date(m.endedAt).toLocaleString()}
-                </p>
-              </div>
-              <p className="text-sm text-[var(--gold-soft)]">
-                Winner: {winner?.name ?? "—"}
-              </p>
-            </li>
-          );
-        })}
-      </ul>
-
-      <p className="mt-8 text-sm text-[var(--cream)]/45">
-        <Link href="/profile" className="text-[var(--gold-soft)] hover:underline">
-          Your match history →
-        </Link>
-      </p>
+      {list.length === 0 ? (
+        <div className="tile mt-6 flex flex-col items-center px-6 py-14 text-center">
+          <span className="font-display text-5xl text-[var(--brass)]/60" aria-hidden>
+            ♣
+          </span>
+          <p className="mt-4 font-semibold">No finished games yet</p>
+          <p className="mt-1 max-w-xs text-sm text-[var(--muted)]">
+            Host a poker night and play it to the last stack. Results show up here.
+          </p>
+          <Link href="/games/poker" className="btn btn-gold mt-6">
+            Host a table
+          </Link>
+        </div>
+      ) : (
+        <ul className="mt-6 space-y-2">
+          {list.map((m) => {
+            const winner = m.players.find((p) => p.place === 1);
+            const gameName = getGame(m.gameId)?.name ?? m.gameId;
+            const title = m.lobbyName || (m.settings as { lobbyName?: string })?.lobbyName || gameName;
+            return (
+              <li key={String(m._id)} className="tile flex items-center gap-4 p-4">
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-semibold">{title}</p>
+                  <p className="tnum mt-0.5 text-sm text-[var(--muted)]">
+                    {gameName} · {m.players.length} players · {fmt.format(new Date(m.endedAt))}
+                  </p>
+                </div>
+                <div className="flex shrink-0 items-center gap-2 text-right">
+                  <div className="hidden sm:block">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">Winner</p>
+                    <p className="max-w-[10rem] truncate text-sm font-semibold text-[var(--brass-hi)]">
+                      {winner?.name ?? "—"}
+                    </p>
+                  </div>
+                  {winner && (
+                    <Avatar
+                      id={winner.avatarId}
+                      size={36}
+                      ring
+                      alt={`Winner: ${winner.name}`}
+                    />
+                  )}
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </div>
   );
 }

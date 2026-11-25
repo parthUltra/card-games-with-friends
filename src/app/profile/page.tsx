@@ -1,10 +1,12 @@
 import { requireOnboarded } from "@/lib/session";
-import { avatarSrc } from "@/lib/avatars";
 import { getCollection } from "@/lib/db";
 import { getGame } from "@/lib/games/registry";
 import { isGuestUser } from "@/lib/guest";
 import { MatchDoc } from "@/lib/types";
 import Link from "next/link";
+import { Avatar } from "@/components/ui/Avatar";
+
+const fmt = new Intl.DateTimeFormat("en", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 
 export default async function ProfilePage() {
   const session = await requireOnboarded();
@@ -20,92 +22,97 @@ export default async function ProfilePage() {
         .limit(15)
         .toArray();
 
-  return (
-    <div className="grid gap-6 lg:grid-cols-[0.8fr_1.2fr]">
-      <div className="panel p-6 text-center">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={avatarSrc(user.avatarId)}
-          alt=""
-          className="mx-auto h-28 w-28 rounded-full border-2 border-[var(--gold)]"
-        />
-        <h1 className="font-display mt-4 text-3xl font-bold">{user.name}</h1>
-        <p className="text-sm text-[var(--cream)]/60">
-          {guest ? "Guest player" : user.email}
-        </p>
-        {guest ? (
-          <p className="mt-4 rounded-xl border border-[var(--line)] bg-black/25 px-4 py-3 text-left text-sm text-[var(--cream)]/70">
-            Guest games and stats are not saved.{" "}
-            <Link href="/login" className="text-[var(--gold-soft)] hover:underline">
-              Sign in with email
-            </Link>{" "}
-            to keep history and climb the leaderboard.
-          </p>
-        ) : (
-          <div className="mt-6 grid grid-cols-3 gap-2 text-center">
-            <div className="rounded-xl bg-black/25 p-3">
-              <p className="font-display text-2xl text-[var(--gold)]">
-                {user.statsWins ?? 0}
-              </p>
-              <p className="text-xs uppercase tracking-wide opacity-60">Wins</p>
-            </div>
-            <div className="rounded-xl bg-black/25 p-3">
-              <p className="font-display text-2xl text-[var(--gold)]">
-                {user.statsTop3 ?? 0}
-              </p>
-              <p className="text-xs uppercase tracking-wide opacity-60">Top 3</p>
-            </div>
-            <div className="rounded-xl bg-black/25 p-3">
-              <p className="font-display text-2xl text-[var(--gold)]">
-                {user.statsPlayed ?? 0}
-              </p>
-              <p className="text-xs uppercase tracking-wide opacity-60">Played</p>
-            </div>
-          </div>
-        )}
-        <Link href="/onboarding" className="btn btn-ghost mt-6 w-full">
-          Edit avatar / name
-        </Link>
-      </div>
+  const stats = [
+    ["Wins", user.statsWins ?? 0],
+    ["Top 3", user.statsTop3 ?? 0],
+    ["Played", user.statsPlayed ?? 0],
+  ] as const;
 
-      <div className="panel p-6">
-        <h2 className="font-display text-2xl font-bold">Match history</h2>
-        <div className="mt-4 space-y-3">
-          {guest && (
-            <p className="text-[var(--cream)]/50">
-              History is only kept for signed-in accounts.
-            </p>
-          )}
-          {!guest && history.length === 0 && (
-            <p className="text-[var(--cream)]/50">No tournaments yet.</p>
-          )}
-          {history.map((m) => {
-            const me = m.players.find((p) => p.userId === user.id);
-            return (
-              <div
-                key={String(m._id)}
-                className="flex items-center justify-between rounded-xl border border-[var(--line)] bg-black/20 px-4 py-3"
-              >
-                <div>
-                  <p className="font-semibold">
-                    {m.lobbyName ||
-                      (m.settings as { lobbyName?: string })?.lobbyName ||
-                      getGame(m.gameId)?.name ||
-                      "Match"}
-                  </p>
-                  <p className="text-xs text-[var(--cream)]/50">
-                    {getGame(m.gameId)?.name ?? m.gameId} ·{" "}
-                    {new Date(m.endedAt).toLocaleString()}
-                  </p>
-                </div>
-                <p className="font-display text-xl text-[var(--gold)]">
-                  #{me?.place ?? "—"}
-                </p>
-              </div>
-            );
-          })}
+  return (
+    <div className="page-in grid gap-4 lg:grid-cols-[360px_1fr] lg:items-start lg:gap-6">
+      <section className="panel overflow-hidden">
+        <div className="relative bg-gradient-to-b from-[var(--felt)] to-transparent px-6 pb-2 pt-8 text-center">
+          <Avatar id={user.avatarId} size={96} ring className="mx-auto" />
+          <h1 className="font-display mt-4 truncate text-[28px] font-bold leading-tight">{user.name}</h1>
+          <p className="mt-1 truncate text-sm text-[var(--muted)]">{guest ? "Guest player" : user.email}</p>
         </div>
-      </div>
+        <div className="p-5 pt-4">
+          {guest ? (
+            <p className="rounded-xl border border-[var(--brass)]/30 bg-[var(--brass)]/[0.06] px-4 py-3 text-sm text-[var(--text)]/85">
+              Guest games and stats aren&apos;t saved.{" "}
+              <Link href="/login" className="link font-semibold">
+                Sign in with email
+              </Link>{" "}
+              to keep history and climb the leaderboard.
+            </p>
+          ) : (
+            <dl className="tnum grid grid-cols-3 gap-2 text-center">
+              {stats.map(([k, v]) => (
+                <div key={k} className="tile p-3">
+                  <dd className="font-display text-[28px] font-bold leading-none text-[var(--brass-hi)]">{v}</dd>
+                  <dt className="mt-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">{k}</dt>
+                </div>
+              ))}
+            </dl>
+          )}
+          <Link href="/onboarding" className="btn btn-ghost mt-4 w-full">
+            Edit name &amp; avatar
+          </Link>
+        </div>
+      </section>
+
+      <section className="panel p-5 md:p-6" aria-labelledby="mh">
+        <h2 id="mh" className="text-lg font-semibold">
+          Match history
+        </h2>
+        {guest || history.length === 0 ? (
+          <div className="mt-4 flex flex-col items-center rounded-xl border border-dashed border-white/10 px-6 py-12 text-center">
+            <span className="font-display text-4xl text-[var(--brass)]/60" aria-hidden>
+              ♥
+            </span>
+            <p className="mt-3 text-sm text-[var(--muted)]">
+              {guest ? "History is only kept for signed-in accounts." : "No tournaments yet. Your finishes will land here."}
+            </p>
+            {!guest && (
+              <Link href="/games/poker" className="btn btn-gold mt-5">
+                Find a table
+              </Link>
+            )}
+          </div>
+        ) : (
+          <ul className="mt-4 space-y-2">
+            {history.map((m) => {
+              const me = m.players.find((p) => p.userId === user.id);
+              const won = me?.place === 1;
+              return (
+                <li key={String(m._id)} className="tile flex items-center gap-4 p-4">
+                  <span
+                    className={`font-display tnum grid h-11 w-11 shrink-0 place-items-center rounded-xl text-lg font-bold ${
+                      won
+                        ? "bg-[var(--brass)]/15 text-[var(--brass-hi)] ring-1 ring-[var(--brass)]/50"
+                        : "bg-white/[0.04] text-[var(--muted)]"
+                    }`}
+                    aria-label={me?.place ? `Finished ${me.place}` : "No placement"}
+                  >
+                    {me?.place ? `#${me.place}` : "—"}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate font-semibold">
+                      {m.lobbyName ||
+                        (m.settings as { lobbyName?: string })?.lobbyName ||
+                        getGame(m.gameId)?.name ||
+                        "Match"}
+                    </p>
+                    <p className="tnum mt-0.5 text-sm text-[var(--muted)]">
+                      {getGame(m.gameId)?.name ?? m.gameId} · {m.players.length} players · {fmt.format(new Date(m.endedAt))}
+                    </p>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </section>
     </div>
   );
 }

@@ -2,47 +2,64 @@ import Link from "next/link";
 import { getSession } from "@/lib/session";
 import { HeroFelt } from "@/components/HeroFelt";
 
+const STEPS = [
+  { n: "01", title: "Host a table", body: "Pick stacks, blinds and a turn timer. Takes ten seconds." },
+  { n: "02", title: "Share the code", body: "Send a link to the group chat. Friends join from any phone." },
+  { n: "03", title: "Play it out", body: "Rising blinds, side pots and a winner. Rematch in one tap." },
+];
+
 export default async function HomePage() {
   const session = await getSession();
 
   return (
-    <section className="relative -mx-4 -mt-6 overflow-hidden px-4 pb-16 pt-10 md:-mx-0 md:px-0 md:pt-14">
-      <div className="pointer-events-none absolute inset-0 -z-10">
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_80%_50%_at_50%_-10%,rgba(212,160,23,0.16),transparent_55%)]" />
-        <div className="absolute -left-24 top-24 h-72 w-72 rounded-full bg-[var(--felt-mid)]/30 blur-3xl" />
-        <div className="absolute -right-16 bottom-10 h-80 w-80 rounded-full bg-[var(--gold)]/8 blur-3xl" />
-      </div>
-
-      <div className="mx-auto max-w-3xl text-center">
-        <h1 className="font-display text-[clamp(2.75rem,8vw,5.5rem)] font-bold leading-[0.92] tracking-tight text-[var(--cream)]">
-          Card Games
-          <span className="mt-1 block text-[var(--gold)]">With Friends</span>
+    <div className="page-in">
+      <section className="pt-4 text-center md:pt-10">
+        <p className="eyebrow">Private poker nights</p>
+        <h1 className="font-display mx-auto mt-4 max-w-4xl text-[clamp(2.5rem,8.5vw,4.5rem)] font-bold leading-[0.95]">
+          Deal in your friends.
+          <span className="block text-[var(--brass)]">Not strangers.</span>
         </h1>
-        <p className="mx-auto mt-5 max-w-lg text-base text-[var(--cream)]/75 md:text-lg">
-          Private tables. Invite links. Poker tonight — more games on the way.
+        <p className="mx-auto mt-5 max-w-md text-base text-[var(--muted)] md:text-lg">
+          Texas Hold&apos;em tables for your group chat. One code, no downloads, plays great on a
+          phone.
         </p>
-        <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
+        <div className="mx-auto mt-8 flex max-w-sm flex-col gap-3 sm:max-w-none sm:flex-row sm:justify-center">
           {session?.user ? (
-            <Link href="/games" className="btn btn-gold">
-              Enter the lounge
+            <Link href="/games/poker" className="btn btn-gold btn-lg">
+              Host or join a table
             </Link>
           ) : (
             <>
-              <Link href="/login" className="btn btn-gold">
+              <Link href="/login" className="btn btn-gold btn-lg">
                 Play as guest
               </Link>
-              <Link href="/login" className="btn btn-ghost">
+              <Link href="/login" className="btn btn-ghost btn-lg">
                 Sign in with email
               </Link>
             </>
           )}
-          <Link href="/leaderboard" className="btn btn-ghost">
-            Leaderboard
-          </Link>
         </div>
-      </div>
+      </section>
 
       <HeroFelt />
-    </section>
+
+      <section className="mx-auto mt-16 grid max-w-4xl gap-3 md:mt-20 md:grid-cols-3" aria-label="How it works">
+        {STEPS.map((s) => (
+          <div key={s.n} className="tile p-5">
+            <p className="tnum font-display text-sm font-bold text-[var(--brass)]">{s.n}</p>
+            <h2 className="mt-2 text-base font-semibold">{s.title}</h2>
+            <p className="mt-1 text-sm text-[var(--muted)]">{s.body}</p>
+          </div>
+        ))}
+      </section>
+
+      <p className="mt-10 text-center text-sm text-[var(--muted)]">
+        See who&apos;s on top in the{" "}
+        <Link href="/leaderboard" className="link">
+          leaderboard
+        </Link>
+        .
+      </p>
+    </div>
   );
 }

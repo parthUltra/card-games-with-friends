@@ -332,6 +332,8 @@ export class PokerEngine {
       if (p.sittingOut) this.setSittingOut(p.id, false);
     }
 
+    if (action === "call" && this.currentBet === p.bet) action = "check";
+
     if (action === "fold") {
       p.folded = true;
       this.say(`${p.name} folds`);

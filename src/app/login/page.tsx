@@ -76,16 +76,19 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="mx-auto max-w-md pt-10">
-      <div className="panel mb-4 space-y-4 p-6 md:p-8">
+    <div className="page-in mx-auto max-w-md pt-2 md:pt-8">
+      <header className="mb-6 text-center">
+        <p className="eyebrow">Take a seat</p>
+        <h1 className="font-display mt-2 text-[28px] font-bold leading-tight md:text-[40px]">Join the game</h1>
+      </header>
+
+      <section className="panel space-y-5 p-5 md:p-7" aria-labelledby="guest-h">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--gold)]">
-            Jump in
-          </p>
-          <h1 className="font-display mt-1 text-3xl font-bold">Play as guest</h1>
-          <p className="mt-2 text-sm text-[var(--cream)]/70">
-            No email needed. Guest games and stats are not saved — sign in with
-            email to keep your history and leaderboard.
+          <h2 id="guest-h" className="text-lg font-semibold">
+            Play as guest
+          </h2>
+          <p className="mt-1 text-sm text-[var(--muted)]">
+            No email needed. Guest games and stats aren&apos;t saved.
           </p>
         </div>
 
@@ -101,48 +104,61 @@ export default function LoginPage() {
               onChange={(e) => setGuestName(e.target.value)}
               placeholder="AceHunter"
               maxLength={24}
+              autoComplete="nickname"
               autoFocus
             />
           </div>
-          <button className="btn btn-gold w-full" disabled={loading} type="submit">
+          <button className="btn btn-gold btn-lg w-full" disabled={loading} aria-busy={loading} type="submit">
+            {loading && <span className="spinner" aria-hidden />}
             {loading ? "Entering…" : "Continue as guest"}
           </button>
         </form>
 
-        <div className="flex flex-wrap gap-2">
-          {QUICK_GUESTS.map((name) => (
-            <button
-              key={name}
-              type="button"
-              className="btn btn-ghost !py-2 !text-sm"
-              disabled={loading}
-              onClick={() => enterAsGuest(name)}
-            >
-              {name}
-            </button>
-          ))}
+        <div>
+          <p className="mb-2 text-xs text-[var(--muted)]">Or grab a quick name</p>
+          <div className="grid grid-cols-3 gap-2">
+            {QUICK_GUESTS.map((name) => (
+              <button
+                key={name}
+                type="button"
+                className="chip"
+                disabled={loading}
+                onClick={() => enterAsGuest(name)}
+              >
+                {name}
+              </button>
+            ))}
+          </div>
         </div>
-        {error && <p className="text-sm text-[var(--danger)]">{error}</p>}
+        {error && !sent && (
+          <p role="alert" className="text-sm text-[#ff9b9e]">
+            {error}
+          </p>
+        )}
+      </section>
+
+      <div className="my-5 flex items-center gap-3 text-xs uppercase tracking-[0.14em] text-[var(--muted)]" aria-hidden>
+        <span className="h-px flex-1 bg-white/10" /> or <span className="h-px flex-1 bg-white/10" />
       </div>
 
-      <div className="panel p-6 md:p-8">
-        <h2 className="font-display text-2xl font-bold">Or sign in with email</h2>
-        <p className="mt-2 text-[var(--cream)]/70">
-          Magic link login. Finishing a tournament as a signed-in player updates
-          your profile, history, and rankings.
+      <section className="panel p-5 md:p-7" aria-labelledby="email-h">
+        <h2 id="email-h" className="text-lg font-semibold">
+          Sign in with email
+        </h2>
+        <p className="mt-1 text-sm text-[var(--muted)]">
+          We&apos;ll send a magic link. Signed-in players keep their history and rankings.
         </p>
 
         {sent ? (
-          <div className="mt-6 rounded-xl border border-[var(--line)] bg-black/20 p-4">
-            <p className="font-semibold text-[var(--gold)]">Check your email</p>
-            <p className="mt-2 text-sm text-[var(--cream)]/75">
-              We sent a sign-in link to <strong>{email}</strong>. In local
-              development without Resend, the link is printed in the server
-              console.
+          <div className="mt-5 rounded-xl border border-[var(--action)]/35 bg-[var(--action)]/[0.07] p-4" role="status">
+            <p className="font-semibold text-[var(--action)]">Check your email</p>
+            <p className="mt-1 text-sm text-[var(--text)]/80">
+              We sent a sign-in link to <strong>{email}</strong>. In local development without Resend,
+              the link is printed in the server console.
             </p>
           </div>
         ) : (
-          <form onSubmit={onSubmit} className="mt-6 space-y-4">
+          <form onSubmit={onSubmit} className="mt-5 space-y-3">
             <div>
               <label className="label" htmlFor="email">
                 Email
@@ -152,20 +168,19 @@ export default function LoginPage() {
                 className="input"
                 type="email"
                 required
+                autoComplete="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="you@example.com"
               />
             </div>
-            {error && (
-              <p className="text-sm text-[var(--danger)]">{error}</p>
-            )}
-            <button className="btn btn-ghost w-full" disabled={loading} type="submit">
+            <button className="btn btn-ghost w-full" disabled={loading} aria-busy={loading} type="submit">
+              {loading && <span className="spinner" aria-hidden />}
               {loading ? "Sending…" : "Email me a link"}
             </button>
           </form>
         )}
-      </div>
+      </section>
     </div>
   );
 }

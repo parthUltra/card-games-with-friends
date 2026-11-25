@@ -76,7 +76,8 @@ describe("poker engine", () => {
     e.applyAction(actor(e).id, "call"); // SB
     expect(e.status).toBe("preflop");
     expect(e.legalActions(actor(e).id).canCheck).toBe(true);
-    e.applyAction(actor(e).id, "check");
+    e.applyAction(actor(e).id, "call"); // nothing to call: treated as a check
+    expect(e.lastAction).toMatch(/checks$/);
     expect(e.status).toBe("flop");
   });
 
