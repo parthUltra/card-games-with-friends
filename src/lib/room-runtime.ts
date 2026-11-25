@@ -2,20 +2,13 @@ import { getCollection } from "@/lib/db";
 import { getGuestUserIdSet } from "@/lib/guest";
 import { PokerEngine } from "@/lib/poker/engine";
 import type { PokerLobbySettings } from "@/lib/games/registry";
+import { generateLobbyCode } from "@/lib/types";
 import type { LobbyDoc, MatchDoc, LeaderboardDoc, GameEventDoc } from "@/lib/types";
-import { ObjectId } from "mongodb";
+import { ObjectId, type Filter } from "mongodb";
 
 export async function getLobby(code: string) {
   const lobbies = await getCollection<LobbyDoc>("lobbies");
   return lobbies.findOne({ code: code.toUpperCase() });
-}
-
-export async function saveLobby(code: string, patch: Partial<LobbyDoc>) {
-  const lobbies = await getCollection<LobbyDoc>("lobbies");
-  await lobbies.updateOne(
-    { code: code.toUpperCase() },
-    { $set: { ...patch, updatedAt: new Date() } },
-  );
 }
 
 export function engineFromLobby(lobby: LobbyDoc): PokerEngine | null {
@@ -25,57 +18,93 @@ export function engineFromLobby(lobby: LobbyDoc): PokerEngine | null {
   );
 }
 
-/** Advance timers / blinds / next hands, persist, and record finished matches. */
-export async function tickLobbyGame(lobby: LobbyDoc): Promise<LobbyDoc> {
-  if (lobby.status !== "playing" || !lobby.engine) return lobby;
+/** Pause after a fold-out win / after a showdown before the next deal */
+const FOLD_PAUSE_MS = 2500;
+const SHOWDOWN_PAUSE_MS = 5000;
+const MAX_WRITE_RETRIES = 5;
 
-  const engine = engineFromLobby(lobby)!;
-  const now = Date.now();
-  let blindLevelStartedAt = lobby.blindLevelStartedAt ?? now;
+/**
+ * Compare-and-set on `rev`: succeeds only if nobody wrote since `lobby` was read.
+ * Docs created before `rev` existed match on its absence.
+ */
+export async function casLobby(lobby: LobbyDoc, patch: Partial<LobbyDoc>) {
+  const lobbies = await getCollection<LobbyDoc>("lobbies");
+  const res = await lobbies.updateOne(
+    { code: lobby.code, rev: lobby.rev ?? { $exists: false } } as Filter<LobbyDoc>,
+    { $set: { ...patch, updatedAt: new Date() }, $inc: { rev: 1 } },
+  );
+  return res.matchedCount === 1;
+}
 
-  if (
-    engine.status !== "finished" &&
-    now - blindLevelStartedAt >=
-      (lobby.settings as PokerLobbySettings).blindIntervalMin * 60_000
-  ) {
-    engine.bumpBlindLevel();
-    blindLevelStartedAt = now;
-  }
+type GameMutation = (engine: PokerEngine, now: number) => void;
 
-  const before = engine.status;
-  engine.tick(now);
-  const status = engine.status;
+/**
+ * Advance timers / blinds / next hands, apply an optional mutation, and persist with
+ * an optimistic revision check (retrying on conflict) so concurrent polls and actions
+ * never overwrite each other. Records finished matches exactly once.
+ */
+export async function runLobbyGame(
+  initial: LobbyDoc,
+  mutate?: GameMutation,
+): Promise<LobbyDoc> {
+  let lobby: LobbyDoc | null = initial;
+  for (let attempt = 0; attempt < MAX_WRITE_RETRIES; attempt++) {
+    if (!lobby || lobby.status !== "playing" || !lobby.engine) return lobby ?? initial;
 
-  let nextHandAt = lobby.nextHandAt ?? null;
+    const engine = engineFromLobby(lobby)!;
+    const now = Date.now();
+    let blindLevelStartedAt = lobby.blindLevelStartedAt ?? now;
+    if (
+      engine.status !== "finished" &&
+      now - blindLevelStartedAt >=
+        (lobby.settings as PokerLobbySettings).blindIntervalMin * 60_000
+    ) {
+      engine.bumpBlindLevel();
+      blindLevelStartedAt = now;
+    }
 
-  if (status === "waiting") {
-    if (before !== "waiting" && !nextHandAt) {
-      nextHandAt = now + 2500;
-    } else if (nextHandAt && now >= nextHandAt) {
+    engine.tick(now);
+    mutate?.(engine, now);
+
+    let nextHandAt = lobby.nextHandAt ?? null;
+    if (engine.status !== "waiting" && engine.status !== "showdown") {
+      nextHandAt = null;
+    } else if (!nextHandAt) {
+      nextHandAt = now + (engine.status === "showdown" ? SHOWDOWN_PAUSE_MS : FOLD_PAUSE_MS);
+    } else if (now >= nextHandAt) {
       engine.startHand(now);
       nextHandAt = null;
     }
-  } else {
-    nextHandAt = null;
-  }
 
-  const patch: Partial<LobbyDoc> = {
-    engine: engine.serialize() as unknown as Record<string, unknown>,
-    blindLevelStartedAt,
-    nextHandAt,
-  };
+    const snapshot = engine.serialize() as unknown as Record<string, unknown>;
+    const finished = engine.status === "finished";
+    if (
+      JSON.stringify(snapshot) === JSON.stringify(lobby.engine) &&
+      nextHandAt === (lobby.nextHandAt ?? null) &&
+      blindLevelStartedAt === lobby.blindLevelStartedAt
+    ) {
+      return lobby; // nothing changed: skip the write
+    }
 
-  if (engine.status === "finished") {
-    patch.status = "finished";
-    if (!lobby.matchPersisted) {
-      await persistFinishedMatch(lobby, engine);
+    const patch: Partial<LobbyDoc> = { engine: snapshot, blindLevelStartedAt, nextHandAt };
+    const persistMatch = finished && !lobby.matchPersisted;
+    if (finished) {
+      patch.status = "finished";
       patch.matchPersisted = true;
     }
-  }
 
-  await saveLobby(lobby.code, patch);
-  return { ...lobby, ...patch, updatedAt: new Date() };
+    if (await casLobby(lobby, patch)) {
+      // Only the writer that flipped matchPersisted records the match.
+      // shortcut: a crash between the CAS and this insert loses the match record; use a transaction if that matters.
+      if (persistMatch) await persistFinishedMatch(lobby, engine);
+      return { ...lobby, ...patch, rev: (lobby.rev ?? 0) + 1, updatedAt: new Date() };
+    }
+    lobby = await getLobby(lobby.code); // someone else wrote first; redo on fresh state
+  }
+  throw new Error("Table is busy, try again");
 }
+
+export const tickLobbyGame = (lobby: LobbyDoc) => runLobbyGame(lobby);
 
 async function persistFinishedMatch(lobby: LobbyDoc, engine: PokerEngine) {
   const startedAt = lobby.startedAt ? new Date(lobby.startedAt) : new Date();
@@ -150,6 +179,7 @@ async function persistFinishedMatch(lobby: LobbyDoc, engine: PokerEngine) {
   }
 }
 
+/** Returns false if the lobby was no longer waiting (e.g. double-clicked start). */
 export async function startPokerTournament(lobby: LobbyDoc) {
   const settings = lobby.settings as PokerLobbySettings;
   const engine = new PokerEngine({
@@ -162,11 +192,48 @@ export async function startPokerTournament(lobby: LobbyDoc) {
   });
   const now = Date.now();
   engine.startHand(now);
-  await saveLobby(lobby.code, {
-    status: "playing",
-    startedAt: new Date(now),
-    blindLevelStartedAt: now,
-    engine: engine.serialize() as unknown as Record<string, unknown>,
-    matchPersisted: false,
-  });
+  const lobbies = await getCollection<LobbyDoc>("lobbies");
+  const res = await lobbies.updateOne(
+    { code: lobby.code, status: "waiting" },
+    {
+      $set: {
+        status: "playing",
+        startedAt: new Date(now),
+        blindLevelStartedAt: now,
+        nextHandAt: null,
+        engine: engine.serialize() as unknown as Record<string, unknown>,
+        matchPersisted: false,
+        updatedAt: new Date(now),
+      },
+      $inc: { rev: 1 },
+    },
+  );
+  return res.matchedCount === 1;
+}
+
+export type LobbyHost = { userId: string; name: string; avatarId: string };
+
+export async function createLobby(host: LobbyHost, settings: PokerLobbySettings) {
+  const lobbies = await getCollection<LobbyDoc>("lobbies");
+  const now = new Date();
+  // Retry on the unique-code index instead of check-then-insert
+  for (let i = 0; ; i++) {
+    const code = generateLobbyCode();
+    try {
+      await lobbies.insertOne({
+        code,
+        gameId: "poker",
+        hostUserId: host.userId,
+        status: "waiting",
+        settings,
+        players: [{ ...host, ready: true, joinedAt: now }],
+        rev: 1,
+        createdAt: now,
+        updatedAt: now,
+      });
+      return code;
+    } catch (err) {
+      if (i >= 4 || (err as { code?: number }).code !== 11000) throw err;
+    }
+  }
 }

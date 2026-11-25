@@ -44,6 +44,12 @@ export type LobbyDoc = {
   /** When set, deal the next hand after this epoch ms */
   nextHandAt?: number | null;
   matchPersisted?: boolean;
+  /** Bumped on every engine write; used for compare-and-set */
+  rev?: number;
+  /** Code of the follow-up lobby once someone starts a rematch */
+  rematchCode?: string;
+  /** Users the host removed; they cannot rejoin this lobby */
+  kicked?: string[];
   createdAt: Date;
   updatedAt: Date;
   inviteExpiresAt?: Date;
