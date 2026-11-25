@@ -1,6 +1,6 @@
 import { Card, buildDeck, shuffle } from "../cards";
 import { PokerLobbySettings } from "../games/registry";
-import { compareHands, evaluateBestHand, EvaluatedHand } from "./hand";
+import { compareHands, evaluateBestHand, EvaluatedHand, handRankLabel } from "./hand";
 
 export type Street = "waiting" | "preflop" | "flop" | "turn" | "river" | "showdown" | "finished";
 
@@ -42,6 +42,8 @@ export type PokerPublicState = {
   placements?: { id: string; name: string; avatarId: string; place: number }[];
   lastAction?: string;
   message?: string;
+  /** Recent actions, newest last */
+  log: { hand: number; text: string }[];
 };
 
 export type PokerPrivateView = PokerPublicState & {
@@ -70,7 +72,15 @@ type InternalPlayer = {
   busted: boolean;
   hole: Card[];
   placement: number | null;
+  /** Auto check/fold on their turn until they sit back in */
+  sittingOut: boolean;
+  /** Consecutive turn timeouts */
+  timeouts: number;
 };
+
+/** Consecutive timeouts before a player is sat out */
+export const SIT_OUT_AFTER_TIMEOUTS = 2;
+const LOG_LIMIT = 60;
 
 export type PokerEngineConfig = PokerLobbySettings & {
   players: { id: string; name: string; avatarId: string }[];
@@ -101,6 +111,7 @@ export class PokerEngine {
   lastAction = "";
   message = "";
   winners: { id: string; amount: number; handName?: string }[] = [];
+  log: { hand: number; text: string }[] = [];
   private lastAggressorSeat: number | null = null;
   private actedThisRound = new Set<string>();
 
@@ -127,6 +138,8 @@ export class PokerEngine {
       busted: false,
       hole: [],
       placement: null,
+      sittingOut: false,
+      timeouts: 0,
     }));
     const blinds = blindForLevel(this.settings.startingSmallBlind, 1);
     this.smallBlind = blinds.smallBlind;
@@ -204,6 +217,20 @@ export class PokerEngine {
     this.startTurnTimer(now);
   }
 
+  private say(text: string) {
+    this.lastAction = text;
+    this.log.push({ hand: this.handNumber, text });
+    if (this.log.length > LOG_LIMIT) this.log.splice(0, this.log.length - LOG_LIMIT);
+  }
+
+  setSittingOut(playerId: string, sittingOut: boolean) {
+    const p = this.players.find((x) => x.id === playerId);
+    if (!p || p.busted || p.sittingOut === sittingOut) return;
+    p.sittingOut = sittingOut;
+    p.timeouts = 0;
+    this.say(`${p.name} ${sittingOut ? "sits out" : "is back"}`);
+  }
+
   private postBlind(seat: number, amount: number) {
     const p = this.players.find((x) => x.seat === seat)!;
     const pay = Math.min(amount, p.stack);
@@ -212,7 +239,7 @@ export class PokerEngine {
     p.totalBet += pay;
     this.pot += pay;
     if (p.stack === 0) p.allIn = true;
-    this.lastAction = `${p.name} posts ${pay}`;
+    this.say(`${p.name} posts ${pay}`);
   }
 
   nextActiveSeat(from: number) {
@@ -295,15 +322,23 @@ export class PokerEngine {
     if (action === "timeout") {
       const legal = this.legalActions(playerId);
       action = legal.canCheck ? "check" : "fold";
+      p.timeouts += 1;
+      if (!p.sittingOut && p.timeouts >= SIT_OUT_AFTER_TIMEOUTS) {
+        p.sittingOut = true;
+        this.say(`${p.name} sits out`);
+      }
+    } else {
+      p.timeouts = 0;
+      if (p.sittingOut) this.setSittingOut(p.id, false);
     }
 
     if (action === "fold") {
       p.folded = true;
-      this.lastAction = `${p.name} folds`;
+      this.say(`${p.name} folds`);
       this.actedThisRound.add(p.id);
     } else if (action === "check") {
       if (this.currentBet !== p.bet) return;
-      this.lastAction = `${p.name} checks`;
+      this.say(`${p.name} checks`);
       this.actedThisRound.add(p.id);
     } else if (action === "call") {
       const toCall = this.currentBet - p.bet;
@@ -313,7 +348,7 @@ export class PokerEngine {
       p.totalBet += pay;
       this.pot += pay;
       if (p.stack === 0) p.allIn = true;
-      this.lastAction = `${p.name} calls ${pay}`;
+      this.say(`${p.name} calls ${pay}`);
       this.actedThisRound.add(p.id);
     } else if (action === "raise") {
       const target = raiseTo ?? this.currentBet + this.minRaise;
@@ -336,7 +371,7 @@ export class PokerEngine {
       this.lastAggressorSeat = p.seat;
       this.actedThisRound = new Set([p.id]);
       if (p.stack === 0) p.allIn = true;
-      this.lastAction = `${p.name} raises to ${p.bet}`;
+      this.say(`${p.name} raises to ${p.bet}`);
     }
 
     // Everyone folded?
@@ -357,7 +392,7 @@ export class PokerEngine {
     }
     winner.stack += this.pot;
     this.winners = [{ id: winner.id, amount: this.pot }];
-    this.lastAction = `${winner.name} wins ${this.pot}`;
+    this.say(`${winner.name} wins ${this.pot}`);
     this.message = `${winner.name} wins the hand`;
     this.pot = 0;
     this.actingSeat = null;
@@ -451,7 +486,7 @@ export class PokerEngine {
     }
 
     // Side pots by contribution
-    const pots = this.computeSidePots(contenders.map((p) => p.id));
+    const pots = this.computeSidePots();
     const awards: { id: string; amount: number; handName?: string }[] = [];
 
     for (const pot of pots) {
@@ -488,38 +523,41 @@ export class PokerEngine {
       }
     }
 
+    for (const p of contenders) {
+      this.say(`${p.name} shows ${handRankLabel(evals.get(p.id)!.name)}`);
+    }
+    for (const a of awards) {
+      const w = this.players.find((p) => p.id === a.id)!;
+      this.say(`${w.name} wins ${a.amount}${a.handName ? ` with ${handRankLabel(a.handName as never)}` : ""}`);
+    }
     this.winners = awards;
     this.pot = 0;
     this.message = "Showdown";
-    // Mark busts after short delay handled by room; here immediately settle
+    // Status stays "showdown" so hands are revealed until the room deals the next hand
     this.settleBusts();
   }
 
-  /** Approximate side pots from totalBet this hand */
-  private computeSidePots(eligibleIds: string[]) {
-    const contrib = this.players
-      .filter((p) => p.totalBet > 0)
-      .map((p) => ({ id: p.id, amount: p.totalBet, folded: p.folded }))
-      .sort((a, b) => a.amount - b.amount);
-
-    if (contrib.length === 0) return [{ amount: this.pot, eligible: eligibleIds }];
-
-    const levels = [...new Set(contrib.map((c) => c.amount))];
+  /** Pots by contribution level; dead money from all-folded levels rolls into the pot below. */
+  computeSidePots() {
+    const contrib = this.players.filter((p) => p.totalBet > 0);
+    const levels = [...new Set(contrib.map((p) => p.totalBet))].sort((a, b) => a - b);
     const pots: { amount: number; eligible: string[] }[] = [];
     let prev = 0;
+    let dead = 0;
     for (const level of levels) {
-      const involved = contrib.filter((c) => c.amount >= level);
-      const amount = (level - prev) * involved.length;
-      const eligible = involved.filter((c) => !c.folded).map((c) => c.id);
-      if (amount > 0) pots.push({ amount, eligible: eligible.length ? eligible : involved.map((c) => c.id) });
+      const involved = contrib.filter((p) => p.totalBet >= level);
+      const amount = (level - prev) * involved.length + dead;
       prev = level;
+      const eligible = involved.filter((p) => !p.folded).map((p) => p.id);
+      if (eligible.length === 0) {
+        if (pots.length) pots[pots.length - 1].amount += amount;
+        else dead = amount;
+        continue;
+      }
+      dead = 0;
+      pots.push({ amount, eligible });
     }
-    // If floating pot mismatch, dump remainder into main
-    const sum = pots.reduce((s, p) => s + p.amount, 0);
-    if (sum < this.pot && pots.length) {
-      pots[pots.length - 1].amount += this.pot - sum;
-    }
-    return pots.length ? pots : [{ amount: this.pot, eligible: eligibleIds }];
+    return pots;
   }
 
   settleBusts() {
@@ -537,7 +575,6 @@ export class PokerEngine {
     if (this.players.filter((p) => !p.busted).length <= 1) {
       this.finishTournament();
     } else {
-      this.status = "waiting";
       this.actingSeat = null;
     }
   }
@@ -577,16 +614,15 @@ export class PokerEngine {
   }
 
   tick(now = Date.now()) {
+    const acting = this.players.find((x) => x.seat === this.actingSeat);
     if (
-      this.turnEndsAt &&
       this.actingSeat !== null &&
-      now >= this.turnEndsAt &&
+      ((this.turnEndsAt && now >= this.turnEndsAt) || acting?.sittingOut) &&
       this.status !== "showdown" &&
       this.status !== "finished" &&
       this.status !== "waiting"
     ) {
-      const p = this.players.find((x) => x.seat === this.actingSeat);
-      if (p) this.applyAction(p.id, "timeout", undefined, now);
+      if (acting) this.applyAction(acting.id, "timeout", undefined, now);
     }
   }
 
@@ -598,7 +634,7 @@ export class PokerEngine {
       actingSeat: this.actingSeat,
       board: this.board,
       pot: this.pot,
-      sidePots: [],
+      sidePots: this.status === "showdown" || this.status === "finished" ? [] : this.computeSidePots(),
       currentBet: this.currentBet,
       minRaise: this.minRaise,
       smallBlind: this.smallBlind,
@@ -616,7 +652,7 @@ export class PokerEngine {
         totalBet: p.totalBet,
         folded: p.folded,
         allIn: p.allIn,
-        sittingOut: false,
+        sittingOut: p.sittingOut,
         busted: p.busted,
         holeCount: p.hole.length,
         hole:
@@ -635,6 +671,7 @@ export class PokerEngine {
         this.status === "finished" ? this.getPlacements() : undefined,
       lastAction: this.lastAction,
       message: this.message,
+      log: this.log,
     };
   }
 
@@ -675,6 +712,7 @@ export class PokerEngine {
       lastAction: this.lastAction,
       message: this.message,
       winners: this.winners,
+      log: this.log,
       lastAggressorSeat: this.lastAggressorSeat,
       actedThisRound: [...this.actedThisRound],
     };
@@ -689,7 +727,9 @@ export class PokerEngine {
         avatarId: p.avatarId,
       })),
     });
-    engine.players = data.players;
+    // Older snapshots predate sit-out tracking
+    engine.players = data.players.map((p) => ({ ...p, sittingOut: p.sittingOut ?? false, timeouts: p.timeouts ?? 0 }));
+    engine.log = data.log ?? [];
     engine.status = data.status;
     engine.handNumber = data.handNumber;
     engine.dealerSeat = data.dealerSeat;
