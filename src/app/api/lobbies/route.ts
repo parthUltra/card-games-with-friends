@@ -90,30 +90,5 @@ export async function POST(req: Request) {
 
   await lobbies.insertOne(doc);
 
-  // Seed PartyKit room (best-effort; players also authenticate on connect)
-  const partyHost =
-    process.env.NEXT_PUBLIC_PARTYKIT_HOST || "127.0.0.1:1999";
-  const partyUrl = partyHost.startsWith("http")
-    ? `${partyHost}/parties/main/${code}`
-    : `http://${partyHost}/parties/main/${code}`;
-  try {
-    await fetch(partyUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        hostUserId: session.user.id,
-        settings,
-        players: doc.players.map((p) => ({
-          userId: p.userId,
-          name: p.name,
-          avatarId: p.avatarId,
-          ready: p.ready,
-        })),
-      }),
-    });
-  } catch {
-    // Party server may not be up yet during local bootstrap
-  }
-
   return NextResponse.json({ code, settings });
 }
