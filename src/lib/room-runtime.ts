@@ -104,7 +104,6 @@ export async function runLobbyGame(
   throw new Error("Table is busy, try again");
 }
 
-export const tickLobbyGame = (lobby: LobbyDoc) => runLobbyGame(lobby);
 
 async function persistFinishedMatch(lobby: LobbyDoc, engine: PokerEngine) {
   const startedAt = lobby.startedAt ? new Date(lobby.startedAt) : new Date();

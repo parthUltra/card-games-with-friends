@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { PlayingCard } from "@/components/PlayingCard";
 import { avatarSrc } from "@/lib/avatars";
 import type { PlayerPublic } from "@/lib/poker/engine";
+import { handRankLabel, type HandRankName } from "@/lib/poker/hand";
 
 type Props = {
   player: PlayerPublic;
@@ -79,9 +80,14 @@ export function SeatHud({ player, active, isDealer, reveal }: Props) {
             ))}
       </div>
 
-      {(player.folded || player.allIn || player.busted) && (
+      {reveal && player.handName && (
+        <p className="mt-1 truncate text-[10px] font-semibold text-[var(--gold-soft)]">
+          {handRankLabel(player.handName as HandRankName)}
+        </p>
+      )}
+      {(player.folded || player.allIn || player.busted || player.sittingOut) && (
         <p className="mt-1 text-[10px] font-bold uppercase tracking-wider text-[var(--cream)]/60">
-          {player.busted ? "Out" : player.folded ? "Fold" : "All-in"}
+          {player.busted ? "Out" : player.folded ? "Fold" : player.allIn ? "All-in" : "Away"}
         </p>
       )}
     </motion.div>

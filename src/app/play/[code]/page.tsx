@@ -23,6 +23,8 @@ export default function PlayPage() {
   const [actionFlash, setActionFlash] = useState<string | null>(null);
   const [heroDealKey, setHeroDealKey] = useState("");
   const [acting, setActing] = useState(false);
+  const [rematchCode, setRematchCode] = useState<string | null>(null);
+  const [showLog, setShowLog] = useState(false);
   const lastActionRef = useRef<string>("");
   const raiseBoundsRef = useRef({ min: 0, max: 0 });
   const polling = useRef(true);
@@ -73,6 +75,7 @@ export default function PlayPage() {
             setError(data.error || "Could not join table");
             break;
           }
+          setRematchCode(data.rematchCode ?? null);
           if (data.state) ingest(data.state as PokerPrivateView);
           else if (data.status === "waiting") {
             router.replace(`/lobby/${code}`);
@@ -118,7 +121,7 @@ export default function PlayPage() {
     }
   }, [holeKey, heroDealKey]);
 
-  async function act(action: "fold" | "check" | "call" | "raise") {
+  async function act(action: "fold" | "check" | "call" | "raise" | "sit_in") {
     if (acting) return;
     setActing(true);
     try {
@@ -132,13 +135,38 @@ export default function PlayPage() {
       });
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error || "Action failed");
+        setActionFlash(data.error || "Action failed");
         return;
       }
       if (data.state) ingest(data.state as PokerPrivateView);
     } finally {
       setActing(false);
     }
+  }
+
+  async function lobbyAction(action: "leave" | "rematch") {
+    const res = await fetch(`/api/lobbies/${code}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setActionFlash(data.error || "Something went wrong");
+      return null;
+    }
+    return data as { rematchCode: string | null };
+  }
+
+  async function leaveTable() {
+    polling.current = false;
+    await lobbyAction("leave");
+    router.push("/games/poker");
+  }
+
+  async function rematch() {
+    const target = rematchCode ?? (await lobbyAction("rematch"))?.rematchCode;
+    if (target) router.push(`/lobby/${target}`);
   }
 
   if (error) {
@@ -182,13 +210,15 @@ export default function PlayPage() {
             </li>
           ))}
         </ol>
-        <button
-          className="btn btn-gold mt-6"
-          type="button"
-          onClick={() => router.push("/games")}
-        >
-          Back to games
-        </button>
+        <div className="mt-6 flex flex-wrap gap-3">
+          <button className="btn btn-gold" type="button" onClick={rematch}>
+            {rematchCode ? "Join rematch" : "Rematch"}
+          </button>
+          <button className="btn btn-ghost" type="button" onClick={() => router.push("/games")}>
+            Back to games
+          </button>
+        </div>
+        {actionFlash && <p className="mt-3 text-sm text-[var(--danger)]">{actionFlash}</p>}
       </div>
     );
   }
@@ -216,6 +246,17 @@ export default function PlayPage() {
           <span className="hidden text-[var(--cream)]/45 sm:inline">
             Level {state.blindLevel}
           </span>
+          <button
+            className="btn btn-ghost !px-3 !py-1 !text-xs"
+            type="button"
+            onClick={() => setShowLog((v) => !v)}
+            aria-expanded={showLog}
+          >
+            {showLog ? "Hide log" : "Hand log"}
+          </button>
+          <button className="btn btn-ghost !px-3 !py-1 !text-xs" type="button" onClick={leaveTable}>
+            Leave table
+          </button>
         </div>
         <div className="text-right text-sm">
           {actor && state.status !== "waiting" && state.status !== "showdown" ? (
@@ -235,6 +276,27 @@ export default function PlayPage() {
           )}
         </div>
       </div>
+
+      {showLog && (
+        <ol className="max-h-48 space-y-1 overflow-y-auto rounded-2xl border border-white/10 bg-black/25 px-4 py-3 text-sm">
+          {[...state.log].reverse().map((l, i) => (
+            <li key={i} className="text-[var(--cream)]/75">
+              <span className="mr-2 tabular-nums text-[var(--cream)]/40">#{l.hand}</span>
+              {l.text}
+            </li>
+          ))}
+          {state.log.length === 0 && <li className="text-[var(--cream)]/40">No actions yet.</li>}
+        </ol>
+      )}
+
+      {mePlayer?.sittingOut && !mePlayer.busted && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[var(--gold)]/30 bg-black/40 px-4 py-3 text-sm">
+          <span>You are sitting out. Your hands are checked or folded for you.</span>
+          <button className="btn btn-gold !py-1.5 !text-sm" type="button" disabled={acting} onClick={() => act("sit_in")}>
+            I&apos;m back
+          </button>
+        </div>
+      )}
 
       {/* Table */}
       <div className="felt-table relative overflow-hidden rounded-[1.75rem] md:rounded-[2.25rem]">
