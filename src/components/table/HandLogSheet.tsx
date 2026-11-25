@@ -14,10 +14,21 @@ export function HandLogSheet({ open, onClose, log }: Props) {
   const closeRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     if (!open) return;
+    const trigger = document.activeElement as HTMLElement | null;
     closeRef.current?.focus();
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+      // The close button is the only focusable control, so trapping Tab means keeping focus on it
+      if (e.key === "Tab") {
+        e.preventDefault();
+        closeRef.current?.focus();
+      }
+    };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      trigger?.focus();
+    };
   }, [open, onClose]);
 
   const hands = new Map<number, string[]>();

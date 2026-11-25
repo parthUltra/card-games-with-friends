@@ -41,6 +41,10 @@ export async function GET(_req: Request, ctx: Ctx) {
   const { code } = await ctx.params;
   let lobby: LobbyDoc | null = await getLobby(code);
   if (!lobby) return err("Lobby not found", 404);
+  // Chat and settings are for seated players only (kicked players lose access too)
+  if (!lobby.players.some((p) => p.userId === session.user.id)) {
+    return err("You are not in this lobby", 403);
+  }
 
   if (lobby.status === "playing") {
     try {
@@ -209,7 +213,8 @@ export async function POST(req: Request, ctx: Ctx) {
         );
         const claimed = await lobbies.updateOne(
           { code: lobby.code, rematchCode: { $exists: false } },
-          { $set: { rematchCode: newCode, updatedAt: new Date() } },
+          // Bump rev so other players' cheap (?since=rev) polls pick up the rematch
+          { $set: { rematchCode: newCode, updatedAt: new Date() }, $inc: { rev: 1 } },
         );
         // Lost the race to another player: drop ours, everyone joins theirs
         if (claimed.matchedCount === 0) await lobbies.deleteOne({ code: newCode });

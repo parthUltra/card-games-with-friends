@@ -16,6 +16,8 @@ type Props = {
   me: PlayerPublic | null;
   isMyTurn: boolean;
   pending: boolean;
+  /** Disable keyboard shortcuts (e.g. while a modal sheet is open) */
+  shortcutsOff?: boolean;
   shakeKey: number;
   pre: PreAction;
   setPre: (p: PreAction) => void;
@@ -26,9 +28,10 @@ type Props = {
 const LIVE = new Set(["preflop", "flop", "turn", "river"]);
 const tap = { scale: 0.96 };
 
-export function ActionDock({ state, me, isMyTurn, pending, shakeKey, pre, setPre, onAct, onSitIn }: Props) {
+export function ActionDock({ state, me, isMyTurn, pending, shortcutsOff, shakeKey, pre, setPre, onAct, onSitIn }: Props) {
   const { legal } = state;
-  const [sheet, setSheet] = useState(false);
+  // Which turn the raise sheet was opened for; it closes itself when that turn is over
+  const [sheetFor, setSheetFor] = useState<string | null>(null);
   const [raiseTo, setRaiseTo] = useState(0);
   const [armed, setArmed] = useState(false);
   const armTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -39,7 +42,8 @@ export function ActionDock({ state, me, isMyTurn, pending, shakeKey, pre, setPre
   const max = legal.maxRaiseTo;
   const value = Math.max(min, Math.min(max, raiseTo));
   const verb: "Bet" | "Raise" = state.currentBet === 0 ? "Bet" : "Raise";
-  const sheetOpen = sheet && isMyTurn && legal.canRaise;
+  const turnKey = isMyTurn ? `${state.handNumber}:${state.board.length}:${state.currentBet}` : null;
+  const sheetOpen = sheetFor !== null && sheetFor === turnKey && legal.canRaise;
   const callLabel = legal.canCheck ? "Check" : `Call ${legal.callAmount.toLocaleString()}`;
 
   useEffect(() => {
@@ -48,7 +52,7 @@ export function ActionDock({ state, me, isMyTurn, pending, shakeKey, pre, setPre
   useEffect(() => () => clearTimeout(armTimer.current), []);
 
   const closeSheet = () => {
-    setSheet(false);
+    setSheetFor(null);
     setArmed(false);
   };
   const fire = (a: HeroAction, amt?: number) => {
@@ -59,7 +63,8 @@ export function ActionDock({ state, me, isMyTurn, pending, shakeKey, pre, setPre
     if (!legal.canRaise) return;
     if (!sheetOpen) {
       setRaiseTo(presets[0]?.amount ?? min);
-      setSheet(true);
+      setArmed(false);
+      setSheetFor(turnKey);
       return;
     }
     if (value === max && !armed) {
@@ -74,10 +79,12 @@ export function ActionDock({ state, me, isMyTurn, pending, shakeKey, pre, setPre
 
   // Desktop shortcuts; ignored while typing or with modifiers.
   const onKey = (e: KeyboardEvent) => {
-    if (e.metaKey || e.ctrlKey || e.altKey || !isMyTurn || pending) return;
+    if (e.metaKey || e.ctrlKey || e.altKey || !isMyTurn || pending || shortcutsOff) return;
     const t = e.target as HTMLElement | null;
     if (t?.closest("textarea, input:not([type=range]), [role=dialog]")) return;
     const k = e.key.toLowerCase();
+    // Enter/Space on a focused button should press that button, not raise
+    if ((k === "enter" || k === " ") && t?.closest("button")) return;
     if (k === "f" && legal.canFold) fire("fold");
     else if (k === "c") callOrCheck();
     else if (k === "r" || (k === "enter" && sheetOpen)) primary();

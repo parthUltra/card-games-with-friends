@@ -37,6 +37,14 @@ const subscribeWide = (fn: () => void) => {
   return () => mq.removeEventListener("change", fn);
 };
 
+/** AbortSignal.timeout is missing on iOS Safari < 16. */
+function timeoutSignal(ms: number): AbortSignal {
+  if (typeof AbortSignal.timeout === "function") return AbortSignal.timeout(ms);
+  const c = new AbortController();
+  setTimeout(() => c.abort(), ms);
+  return c.signal;
+}
+
 export default function PlayPage() {
   const params = useParams<{ code: string }>();
   const code = (params.code || "").toUpperCase();
@@ -86,6 +94,8 @@ export default function PlayPage() {
       }
       const next = data.state;
       if (!next) return;
+      // A poll sent before our action can land after it; never step back to an older revision
+      if (live.current.state && data.rev < live.current.rev) return;
       const prev = live.current.state;
       if (data.rev !== live.current.rev) live.current.lastChange = Date.now();
       live.current.rev = data.rev;
@@ -101,7 +111,7 @@ export default function PlayPage() {
 
       // Pre-actions: drop stale ones (amount changed / new hand), fire on our turn.
       let p = live.current.pre;
-      if (p && (prev?.handNumber !== next.handNumber || (p.kind !== "callany" && p.kind !== "checkfold" && p.amount !== toCall))) {
+      if (p && (prev?.handNumber !== next.handNumber || prev?.board.length !== next.board.length || (p.kind !== "callany" && p.kind !== "checkfold" && p.amount !== toCall))) {
         p = null;
         setPre(null);
       }
@@ -169,7 +179,7 @@ export default function PlayPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action, raiseTo: action === "raise" ? raiseTo : undefined }),
-        signal: AbortSignal.timeout(10000),
+        signal: timeoutSignal(10000),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || "Action failed");
@@ -208,7 +218,7 @@ export default function PlayPage() {
       try {
         const since = L.rev && L.state ? `?since=${L.rev}` : "";
         // Timeout so a stalled request (network switch) can never wedge the loop.
-        const res = await fetch(`/api/lobbies/${code}/game${since}`, { cache: "no-store", signal: AbortSignal.timeout(8000) });
+        const res = await fetch(`/api/lobbies/${code}/game${since}`, { cache: "no-store", signal: timeoutSignal(8000) });
         if (res.status === 401) return router.replace("/login");
         if (res.status === 403 || res.status === 404) {
           const d = await res.json().catch(() => ({}));
@@ -561,6 +571,7 @@ export default function PlayPage() {
                 me={mePlayer}
                 isMyTurn={isMyTurn}
                 pending={!!pending}
+                shortcutsOff={logOpen}
                 shakeKey={shakeKey}
                 pre={pre}
                 setPre={setPre}

@@ -57,7 +57,8 @@ export default function LobbyPage() {
       setLobby(data);
       // Finished tables show results + rematch on the play page
       if (data.status === "playing" || (data.status === "finished" && data.players.length > 0)) {
-        router.push(`/play/${code}`);
+        // replace, not push: Back from the table must not bounce through this page again
+        router.replace(`/play/${code}`);
       }
     },
     [code, router],
@@ -68,9 +69,14 @@ export default function LobbyPage() {
     const res = await fetch(`/api/lobbies/${code}`, { cache: "no-store" });
     const data = await res.json();
     if (!res.ok) {
-      setError(data.error || "Could not load lobby");
+      // Gone or no longer a member: stop polling. Anything else is transient; keep the last good view.
+      if (res.status === 403 || res.status === 404) {
+        polling.current = false;
+        setError(data.error || "Could not load lobby");
+      }
       return;
     }
+    setError(null);
     if (seq === actionSeq.current) applyLobby(data);
   }, [applyLobby, code]);
 
@@ -168,7 +174,8 @@ export default function LobbyPage() {
   }
 
   async function toggleReady() {
-    if (!lobby || !me) return;
+    // One request at a time: a double tap must not race ready/unready and roll back to stale state
+    if (!lobby || !me || busy === "ready") return;
     const prev = lobby;
     const next = !lobby.players.find((p) => p.userId === me)?.ready;
     // Optimistic: flip now, roll back if the server refuses.
@@ -185,7 +192,7 @@ export default function LobbyPage() {
   }
 
   async function start() {
-    if (await post({ action: "start" }, "start")) router.push(`/play/${code}`);
+    if (await post({ action: "start" }, "start")) router.replace(`/play/${code}`);
   }
 
   async function leave() {
